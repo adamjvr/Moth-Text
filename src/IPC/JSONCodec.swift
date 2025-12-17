@@ -35,7 +35,7 @@ public enum JSONValue: Codable {
 public enum JSONCodec {
     public static let encoder: JSONEncoder = {
         let e = JSONEncoder()
-        e.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        e.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         return e
     }()
 
