@@ -76,3 +76,32 @@ Paired with Luna tab-overflow and split-container work.
 Moth Text now uses the Mozilla Public License 2.0 (`MPL-2.0`), matching Luna-UI. The previous project license has been replaced with the complete MPL-2.0 text, and concise SPDX identifiers have been added to the Swift package manifest, source files, tests, and repository scripts.
 
 This keeps the flagship application and its UI framework under the same file-level copyleft licensing baseline while preserving their independent repositories and histories.
+
+---
+
+## Phase M0.2 — Real Luna Application Shell
+
+**Status:** implemented in this iteration, pending local graphical smoke test.
+
+MothTextLinux now consumes LunaHostSDL's public application runner instead of
+printing a bootstrap message and returning immediately.
+
+Deliverables:
+
+- real resizable `Moth Text` window;
+- Luna-owned Linux host lifecycle and event loop;
+- Moth-owned platform-neutral shell scene;
+- custom-rendered menu, tab, sidebar, editor, minimap, caret, and status regions;
+- pointer interaction that visibly changes the accent state;
+- process lifetime tied to the window lifetime;
+- plugin IPC retained as a separate optional smoke test;
+- headless tests for resize invalidation, interaction state, and shell pixels.
+
+Definition of done:
+
+- `swift run MothTextLinux` opens a visible window;
+- the shell stays active until the window is closed;
+- resizing redraws the entire shell correctly;
+- clicking changes the visible accent state;
+- closing the window returns control to the terminal with exit code zero;
+- automated Moth tests pass against the pinned Luna revision.

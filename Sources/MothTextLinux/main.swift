@@ -1,5 +1,11 @@
 // SPDX-License-Identifier: MPL-2.0
+
 import Foundation
+import LunaCore
+import LunaHostCore
+import LunaHostSDL
+import LunaInput
+import LunaRender
 import MothApplication
 import MothIPC
 
@@ -12,12 +18,8 @@ private func writeError(_ message: String) {
 private func runPluginHostPingSmokeTest() throws {
     print("[MothTextLinux] Connecting to optional plugin host at \(socketPath)")
     let socket = try UnixDomainSocket.connect(toPath: socketPath)
-
-    let request = try IPC.makePingRequest(
-        message: "Hello from MothTextLinux IPC smoke test"
-    )
+    let request = try IPC.makePingRequest(message: "Hello from MothTextLinux IPC smoke test")
     try socket.writeLine(try IPC.encodeEnvelope(request))
-    print("[MothTextLinux] Sent ping id=\(request.id)")
 
     while true {
         let lines = try socket.readAvailableLines()
@@ -32,7 +34,6 @@ private func runPluginHostPingSmokeTest() throws {
         for line in lines {
             let envelope = try IPC.decodeEnvelope(fromLine: line)
             guard envelope.id == request.id else { continue }
-
             if let error = envelope.error {
                 throw NSError(
                     domain: "MothTextLinux.IPCSmokeTest",
@@ -40,15 +41,30 @@ private func runPluginHostPingSmokeTest() throws {
                     userInfo: [NSLocalizedDescriptionKey: error.message]
                 )
             }
-
-            guard envelope.type == .response, envelope.method == "core.ping" else {
-                continue
-            }
-
+            guard envelope.type == .response, envelope.method == "core.ping" else { continue }
             let pong = try IPC.decodePingResult(envelope.result)
             print("[MothTextLinux] Plugin host pong: '\(pong.echoed)'")
             return
         }
+    }
+}
+
+private struct MothLinuxSDLScene: LunaSDLApplicationScene {
+    var shell = MothApplicationShellScene()
+
+    var wantsContinuousRendering: Bool {
+        shell.wantsContinuousRendering
+    }
+
+    mutating func handleHostEvent(
+        _ event: LunaHostInputEvent,
+        framebufferSize: LunaSizeI
+    ) -> LunaFrameInvalidationSet {
+        shell.handleHostEvent(event, framebufferSize: framebufferSize)
+    }
+
+    mutating func render(into framebuffer: inout LunaFramebuffer) {
+        shell.render(into: &framebuffer)
     }
 }
 
@@ -65,8 +81,17 @@ if CommandLine.arguments.contains("--ipc-smoke") {
     }
 }
 
-// Normal application startup must not depend on the optional plugin host.
-// Phase M0 still exposes a terminal proof shell; a Luna-rendered Moth window is
-// introduced by the paired Luna 5E / Moth M1 application integration work.
-print("[MothTextLinux] Core application bootstrap passed")
-print("[MothTextLinux] Plugin services are optional; use --ipc-smoke to test them")
+private var scene = MothLinuxSDLScene()
+let result = runLunaSDLApplication(
+    configuration: LunaSDLApplicationConfiguration(
+        title: "Moth Text",
+        initialWidth: 1100,
+        initialHeight: 720
+    ),
+    scene: &scene
+)
+
+if result != 0 {
+    writeError("[MothTextLinux] Luna host exited with code \(result)")
+    exit(result)
+}

@@ -54,6 +54,9 @@ let package = Package(
                 "MothWorkspace",
                 .product(name: "LunaCore", package: "Luna-UI"),
                 .product(name: "LunaUI", package: "Luna-UI"),
+                .product(name: "LunaHostCore", package: "Luna-UI"),
+                .product(name: "LunaInput", package: "Luna-UI"),
+                .product(name: "LunaRender", package: "Luna-UI"),
             ]
         ),
 
@@ -67,6 +70,11 @@ let package = Package(
             dependencies: [
                 "MothApplication",
                 "MothIPC",
+                .product(name: "LunaCore", package: "Luna-UI"),
+                .product(name: "LunaHostCore", package: "Luna-UI"),
+                .product(name: "LunaHostSDL", package: "Luna-UI"),
+                .product(name: "LunaInput", package: "Luna-UI"),
+                .product(name: "LunaRender", package: "Luna-UI"),
             ]
         ),
 
@@ -91,5 +99,16 @@ let package = Package(
             name: "MothIPCTests",
             dependencies: ["MothIPC"]
         ),
+        .testTarget(
+            name: "MothApplicationTests",
+            dependencies: [
+                "MothApplication",
+                .product(name: "LunaCore", package: "Luna-UI"),
+                .product(name: "LunaHostCore", package: "Luna-UI"),
+                .product(name: "LunaInput", package: "Luna-UI"),
+                .product(name: "LunaRender", package: "Luna-UI"),
+            ]
+        ),
+
     ]
 )

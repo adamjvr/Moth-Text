@@ -84,3 +84,19 @@ Normal application startup must not require the optional plugin host. When IPC o
 ```
 
 The plugin-host executable product is named `MothPluginHost`.
+
+## Graphical Application Gate
+
+A successful process launch message is not sufficient. Every Linux Moth
+iteration must run `swift run MothTextLinux` and visibly verify that:
+
+- a real `Moth Text` window opens;
+- the terminal remains occupied while the window is open;
+- Luna-rendered chrome is visible;
+- resizing works;
+- pointer interaction visibly updates the shell;
+- closing the window exits cleanly.
+
+The plugin host is validated separately with
+`scripts/smoke-test-plugin-host.sh`; plugin IPC is not a prerequisite for the
+core application window.

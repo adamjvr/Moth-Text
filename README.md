@@ -161,3 +161,10 @@ Run the separate plugin-host IPC proof with:
 ```
 
 The plugin host is exposed as the `MothPluginHost` executable product.
+
+## Current Graphical Shell
+
+`swift run MothTextLinux` now opens a real Luna-rendered resizable window and
+runs until the window is closed. The current M0.2 shell proves application
+hosting, custom rendering, input invalidation, resizing, and clean shutdown.
+It intentionally precedes the production buffer/view integration of M1.
