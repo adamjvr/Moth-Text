@@ -57,6 +57,7 @@ let package = Package(
                 .product(name: "LunaHostCore", package: "Luna-UI"),
                 .product(name: "LunaInput", package: "Luna-UI"),
                 .product(name: "LunaRender", package: "Luna-UI"),
+                .product(name: "LunaTheme", package: "Luna-UI"),
             ]
         ),
 
@@ -105,6 +106,7 @@ let package = Package(
                 "MothApplication",
                 "MothEditor",
                 "MothTextCore",
+                "MothWorkspace",
                 .product(name: "LunaCore", package: "Luna-UI"),
                 .product(name: "LunaHostCore", package: "Luna-UI"),
                 .product(name: "LunaInput", package: "Luna-UI"),

@@ -51,7 +51,7 @@ cd Moth-Text
 For an existing clone:
 
 ```bash
-git submodule update --init --recursive
+git submodule update --init Dependencies/Luna-UI
 ./scripts/test-all.sh
 ```
 
@@ -112,11 +112,23 @@ Implemented against Luna Phase 5E.2:
 - a graphical Luna shell that renders and edits real Moth buffer content;
 - headless architecture and behavior tests preserving the Moth/Luna boundary.
 
-### Next: M2 — First file-backed editor workflow
+### M2.1 — First file-backed editor workflow
 
-The next product slice adds open/save document lifecycle, host file services,
-undo/redo grouping, a visible find panel, command/menu routing, and a Moth-owned
-theme around the now-working buffer/view foundation.
+Implemented against Luna Phase 5F.1:
+
+- Moth-owned file document identity, URL, display name, UTF-8/BOM encoding, saved revision, and known disk state;
+- real Open, Save, and Save As through the Luna host-dialog boundary;
+- external-change detection without moving filesystem policy into Luna;
+- dirty-document Save / Don’t Save / Cancel protection when replacing or closing the current document;
+- file-name/path/encoding/dirty/revision projection into the graphical shell;
+- command-line file opening plus Linux zenity/yad/kdialog adapters;
+- a Moth-owned application theme supplied through Luna's public theme product;
+- two independent editor views retained over the file document's one authoritative buffer.
+
+### Next: M2.2 — Editing command depth
+
+The next product slice adds undo/redo transaction grouping, a visible find/replace
+panel, fuller command/menu routing and shortcuts, and external-change response UI.
 
 See:
 
@@ -142,10 +154,16 @@ Then:
 ./scripts/bootstrap.sh
 ```
 
-Launch the graphical editor shell with:
+Launch the graphical editor shell with an untitled document:
 
 ```bash
 swift run MothTextLinux
+```
+
+Or open a real file directly:
+
+```bash
+swift run MothTextLinux /tmp/moth-test.txt
 ```
 
 Run the optional plugin-host proof separately with:
@@ -179,8 +197,9 @@ The plugin host is exposed as the `MothPluginHost` executable product.
 
 ## Current Graphical Shell
 
-`swift run MothTextLinux` now opens a real Luna-rendered resizable window and
-runs until the window is closed. The current M0.2 shell proves application
-hosting, custom rendering, input invalidation, resizing, and clean shutdown.
-It now renders and edits a real Moth-owned source buffer through Luna Phase 5E.2
-adapters. File open/save lifecycle and the visible product find workflow arrive in M2.
+`swift run MothTextLinux` now opens a real Luna-rendered resizable window,
+accepts an optional file path, and runs until the window is closed. M2.1 renders
+and edits a real Moth-owned file document through Luna adapters, supports Open,
+Save, Save As, UTF-8 BOM preservation, and dirty-close protection, and keeps the
+optional plugin host as a separate smoke test. Visible find UI and undo/redo
+arrive in M2.2.

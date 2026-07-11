@@ -47,18 +47,33 @@ Exit condition achieved:
 
 ## M2 — First file-backed Luna-rendered Moth application slice
 
-**Status: next product phase.**
+**Status: M2.1 implemented and validated against Luna Phase 5F.1.**
 
-M1.1 already establishes the real-buffer rendering path and direct editing proof.
-M2 turns that proof into the first file-backed editor workflow:
+Delivered in M2.1:
 
-- open and save a plain-text document through Luna host services;
-- give Moth explicit document identity, URL, encoding, and save-state policy;
-- replace demo startup content with a product document/session bootstrap;
-- add one product-owned theme resource;
-- connect command descriptions, menu actions, status information, and visible find UI;
-- add undo/redo transaction grouping for the single-view slice;
-- retain native platform services only behind Luna host contracts.
+- Moth-owned file-document identity, URL, filename, UTF-8/BOM encoding, and known disk state;
+- local UTF-8 open, atomic save, Save As identity migration, and BOM preservation;
+- external-change detection through a Moth-owned filesystem controller;
+- Open, Save, Save As, and unsaved-changes decisions through Luna host dialog contracts;
+- native-window termination veto so Cancel genuinely keeps a dirty document open;
+- command-line file opening and Linux zenity/yad/kdialog adapters outside Luna;
+- a Moth-owned theme supplied through Luna's public `LunaTheme` product;
+- filename/path/encoding/revision/dirty state rendered in the live shell;
+- one file document retaining one authoritative buffer and two independent editor views;
+- regression coverage for file lifecycle, dialog routing, dirty-close policy, and shared-view ownership.
+
+M2.2 remains:
+
+- undo/redo transaction grouping;
+- visible find/replace panel integration;
+- fuller command/menu routing and keyboard shortcuts;
+- external-change response and reload/conflict presentation;
+- recent-file/session groundwork.
+
+M2.1 exit condition achieved:
+
+> Moth can open a real UTF-8 file, edit and save it, Save As an untitled buffer,
+> preserve a UTF-8 BOM, refuse a cancelled dirty close, and reopen the saved file.
 
 ## M3 — Workspace fundamentals
 

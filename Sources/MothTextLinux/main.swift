@@ -30,7 +30,6 @@ private func runPluginHostPingSmokeTest() throws {
                 userInfo: [NSLocalizedDescriptionKey: "Plugin host closed before replying"]
             )
         }
-
         for line in lines {
             let envelope = try IPC.decodeEnvelope(fromLine: line)
             guard envelope.id == request.id else { continue }
@@ -49,11 +48,40 @@ private func runPluginHostPingSmokeTest() throws {
     }
 }
 
-private struct MothLinuxSDLScene: LunaSDLApplicationScene {
-    var shell = MothApplicationShellScene()
+private struct LaunchOptions {
+    var openPath: String?
+    var scriptedSavePath: String?
+    var ipcSmoke = false
 
-    var wantsContinuousRendering: Bool {
-        shell.wantsContinuousRendering
+    init(arguments: [String]) {
+        var index = 1
+        while index < arguments.count {
+            switch arguments[index] {
+            case "--ipc-smoke":
+                ipcSmoke = true
+            case "--open" where index + 1 < arguments.count:
+                index += 1
+                openPath = arguments[index]
+            case "--save-as" where index + 1 < arguments.count:
+                index += 1
+                scriptedSavePath = arguments[index]
+            case let argument where !argument.hasPrefix("-") && openPath == nil:
+                openPath = argument
+            default:
+                break
+            }
+            index += 1
+        }
+    }
+}
+
+private struct MothLinuxSDLScene: LunaSDLApplicationScene {
+    var shell: MothApplicationShellScene
+
+    var wantsContinuousRendering: Bool { shell.wantsContinuousRendering }
+
+    mutating func shouldTerminate() -> Bool {
+        shell.requestApplicationTermination()
     }
 
     mutating func handleHostEvent(
@@ -68,9 +96,10 @@ private struct MothLinuxSDLScene: LunaSDLApplicationScene {
     }
 }
 
+private let options = LaunchOptions(arguments: CommandLine.arguments)
 print(MothApplication.startupSummary(platform: "Linux"))
 
-if CommandLine.arguments.contains("--ipc-smoke") {
+if options.ipcSmoke {
     do {
         try runPluginHostPingSmokeTest()
         print("[MothTextLinux] IPC smoke test passed")
@@ -81,7 +110,24 @@ if CommandLine.arguments.contains("--ipc-smoke") {
     }
 }
 
-private var scene = MothLinuxSDLScene()
+let scripted = LunaScriptedDialogService(
+    savePathSelections: options.scriptedSavePath.map { [$0] } ?? [],
+    scriptedSelectionsAllowOverwrite: true
+)
+var shell = MothApplicationShellScene(
+    dialogService: MothLinuxDialogService(scripted: scripted)
+)
+
+if let openPath = options.openPath {
+    do {
+        try shell.openDocument(at: URL(fileURLWithPath: openPath))
+    } catch {
+        writeError("[MothTextLinux] Could not open \(openPath): \(error.localizedDescription)")
+        exit(EXIT_FAILURE)
+    }
+}
+
+private var scene = MothLinuxSDLScene(shell: shell)
 let result = runLunaSDLApplication(
     configuration: LunaSDLApplicationConfiguration(
         title: "Moth Text",

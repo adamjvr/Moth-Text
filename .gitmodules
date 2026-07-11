@@ -1,3 +1,4 @@
 [submodule "Dependencies/Luna-UI"]
 	path = Dependencies/Luna-UI
 	url = https://github.com/adamjvr/Luna-UI.git
+	branch = main

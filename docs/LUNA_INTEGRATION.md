@@ -28,7 +28,7 @@ cd Moth-Text
 For an existing clone:
 
 ```bash
-git submodule update --init --recursive
+git submodule update --init Dependencies/Luna-UI
 ./scripts/test-all.sh
 ```
 
@@ -68,20 +68,20 @@ Moth owns:
 - Sublime-compatible commands, settings, keymaps, packages, and sessions;
 - syntax and language-service orchestration.
 
-## Phase 5E.2 compatibility point
+## Phase 5F.1 compatibility point
 
-Moth M1.1 is validated against Luna commit:
+Moth M2.1 requires the Luna Phase 5F.1 revision committed and pushed immediately
+before this Moth overlay is tested. Update it only through:
 
-```text
-debc3bbc548ce3cdffcfd549cea9062d4b9dd2a1
-feat(document): add Luna Phase 5E.2 adapter seams
+```bash
+./scripts/update-luna.sh
 ```
 
-That Luna revision supplies stable document/view identities, immutable UTF-8 text
-snapshots, content revisions, independent presentation state, revision invalidation,
-injected find-panel session contracts, and a public CPU bitmap text renderer.
+That Luna revision supplies the Phase 5E.2 document/view adapters, the public
+`LunaTheme` product, reusable pane/tab mechanics, and an application-owned SDL
+termination veto. Moth uses the termination veto to keep dirty-close Save / Don’t
+Save / Cancel policy in the product while Luna remains neutral.
 
-Moth consumes those contracts only from `MothApplication`. `MothTextCore` owns the
-authoritative text and revisions, while `MothEditor` owns view and find/replace
-policy. Advancing past this Luna revision requires rerunning both repositories'
-headless suites and the Moth graphical and IPC smoke checks.
+Moth consumes Luna contracts only from `MothApplication` and platform entry points.
+`MothTextCore` remains headless, `MothWorkspace` owns file/document lifecycle, and
+`MothEditor` owns view and find/replace policy.

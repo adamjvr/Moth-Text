@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MPL-2.0
 
+import Foundation
 import XCTest
 import LunaCore
 import LunaHostCore
@@ -8,6 +9,7 @@ import LunaRender
 import LunaUI
 import MothEditor
 import MothTextCore
+import MothWorkspace
 @testable import MothApplication
 
 final class MothApplicationTests: XCTestCase {
@@ -139,4 +141,115 @@ final class MothApplicationTests: XCTestCase {
         }
         XCTAssertGreaterThan(glyphPixels.count, 1)
     }
+    func testScriptedOpenCommandInstallsFileBackedDocument() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MothApplicationOpen-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let file = directory.appendingPathComponent("opened.txt")
+        try Data("opened from disk".utf8).write(to: file)
+
+        let dialogs = LunaScriptedDialogService(openPathSelections: [[file.path]])
+        var scene = MothApplicationShellScene(initialText: "old", dialogService: dialogs)
+        _ = scene.handleHostEvent(
+            .keyboard(LunaKeyboardEvent(
+                key: .other("o"),
+                modifiers: LunaKeyboardModifiers(control: true)
+            )),
+            framebufferSize: LunaSizeI(width: 1100, height: 720)
+        )
+
+        XCTAssertEqual(scene.documentSnapshot.fileURL, file.standardizedFileURL)
+        XCTAssertEqual(scene.documentSnapshot.displayName, "opened.txt")
+        XCTAssertEqual(scene.bufferSnapshot.text, "opened from disk")
+        XCTAssertFalse(scene.documentSnapshot.isDirty)
+    }
+
+    func testScriptedSaveAsCommandWritesUntitledDocumentAndSuppressesShortcutText() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MothApplicationSave-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let destination = directory.appendingPathComponent("saved.txt")
+
+        let dialogs = LunaScriptedDialogService(
+            savePathSelections: [destination.path],
+            scriptedSelectionsAllowOverwrite: true
+        )
+        var scene = MothApplicationShellScene(initialText: "save me", dialogService: dialogs)
+        _ = scene.handleHostEvent(
+            .keyboard(LunaKeyboardEvent(
+                key: .other("s"),
+                modifiers: LunaKeyboardModifiers(shift: true, control: true)
+            )),
+            framebufferSize: LunaSizeI(width: 1100, height: 720)
+        )
+        _ = scene.handleHostEvent(
+            .textInput(LunaTextInputEvent(text: "s")),
+            framebufferSize: LunaSizeI(width: 1100, height: 720)
+        )
+
+        XCTAssertEqual(scene.documentSnapshot.fileURL, destination.standardizedFileURL)
+        XCTAssertEqual(try String(contentsOf: destination, encoding: .utf8), "save me")
+        XCTAssertEqual(scene.bufferSnapshot.text, "save me")
+        XCTAssertFalse(scene.documentSnapshot.isDirty)
+    }
+
+    func testDirtyDocumentCanCancelApplicationTermination() {
+        let dialogs = LunaScriptedDialogService(unsavedDecisions: [.cancel])
+        var scene = MothApplicationShellScene(initialText: "base", dialogService: dialogs)
+        _ = scene.handleHostEvent(
+            .textInput(LunaTextInputEvent(text: "!")),
+            framebufferSize: LunaSizeI(width: 1100, height: 720)
+        )
+
+        XCTAssertTrue(scene.documentSnapshot.isDirty)
+        XCTAssertFalse(scene.requestApplicationTermination())
+        XCTAssertTrue(scene.documentSnapshot.isDirty)
+    }
+
+    func testDirtyUntitledDocumentCanSaveBeforeApplicationTermination() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MothApplicationCloseSave-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let destination = directory.appendingPathComponent("close-saved.txt")
+        let dialogs = LunaScriptedDialogService(
+            unsavedDecisions: [.save],
+            savePathSelections: [destination.path],
+            scriptedSelectionsAllowOverwrite: true
+        )
+        var scene = MothApplicationShellScene(initialText: "base", dialogService: dialogs)
+        _ = scene.handleHostEvent(
+            .textInput(LunaTextInputEvent(text: "!")),
+            framebufferSize: LunaSizeI(width: 1100, height: 720)
+        )
+
+        XCTAssertTrue(scene.requestApplicationTermination())
+        XCTAssertFalse(scene.documentSnapshot.isDirty)
+        XCTAssertEqual(try String(contentsOf: destination, encoding: .utf8), "!base")
+    }
+
+    func testDirectSaveWritesSharedBufferAndClearsDirtyState() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("MothApplicationDirectSave-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let destination = directory.appendingPathComponent("direct.txt")
+        try Data("base".utf8).write(to: destination)
+
+        var scene = MothApplicationShellScene()
+        try scene.openDocument(at: destination)
+        _ = scene.handleHostEvent(
+            .textInput(LunaTextInputEvent(text: "!")),
+            framebufferSize: LunaSizeI(width: 1100, height: 720)
+        )
+        XCTAssertTrue(scene.documentSnapshot.isDirty)
+
+        _ = try scene.saveDocument()
+
+        XCTAssertFalse(scene.documentSnapshot.isDirty)
+        XCTAssertEqual(try String(contentsOf: destination, encoding: .utf8), "!base")
+    }
+
 }
