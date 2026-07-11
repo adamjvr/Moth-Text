@@ -3,37 +3,70 @@ import Foundation
 import MothApplication
 import MothIPC
 
-print(MothApplication.startupSummary(platform: "Linux"))
+private let socketPath = "/tmp/mothtext.sock"
 
-let socketPath = "/tmp/mothtext.sock"
+private func writeError(_ message: String) {
+    FileHandle.standardError.write(Data((message + "\n").utf8))
+}
 
-do {
-    print("[MothTextLinux] Connecting to \(socketPath)")
-    let sock = try UnixDomainSocket.connect(toPath: socketPath)
+private func runPluginHostPingSmokeTest() throws {
+    print("[MothTextLinux] Connecting to optional plugin host at \(socketPath)")
+    let socket = try UnixDomainSocket.connect(toPath: socketPath)
 
-    let req = try IPC.makePingRequest(message: "Hello from MothTextLinux (M0 repository foundation)")
-    try sock.writeLine(try IPC.encodeEnvelope(req))
-    print("[MothTextLinux] Sent ping id=\(req.id)")
+    let request = try IPC.makePingRequest(
+        message: "Hello from MothTextLinux IPC smoke test"
+    )
+    try socket.writeLine(try IPC.encodeEnvelope(request))
+    print("[MothTextLinux] Sent ping id=\(request.id)")
 
     while true {
-        let lines = try sock.readAvailableLines()
+        let lines = try socket.readAvailableLines()
         if lines.isEmpty {
-            print("[MothTextLinux] Host closed connection; exiting")
-            break
+            throw NSError(
+                domain: "MothTextLinux.IPCSmokeTest",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Plugin host closed before replying"]
+            )
         }
+
         for line in lines {
-            let env = try IPC.decodeEnvelope(fromLine: line)
-            if env.type == .response && env.method == "core.ping" && env.id == req.id {
-                let pong = try IPC.decodePingResult(env.result)
-                print("[MothTextLinux] Pong: echoed='\(pong.echoed)' serverTime='\(pong.serverTimeISO8601)'")
-                exit(0)
-            } else if env.type == .response && env.id == req.id, let err = env.error {
-                print("[MothTextLinux] Error response: code=\(err.code) message=\(err.message)")
-                exit(2)
+            let envelope = try IPC.decodeEnvelope(fromLine: line)
+            guard envelope.id == request.id else { continue }
+
+            if let error = envelope.error {
+                throw NSError(
+                    domain: "MothTextLinux.IPCSmokeTest",
+                    code: error.code,
+                    userInfo: [NSLocalizedDescriptionKey: error.message]
+                )
             }
+
+            guard envelope.type == .response, envelope.method == "core.ping" else {
+                continue
+            }
+
+            let pong = try IPC.decodePingResult(envelope.result)
+            print("[MothTextLinux] Plugin host pong: '\(pong.echoed)'")
+            return
         }
     }
-} catch {
-    FileHandle.standardError.write(Data("[MothTextLinux] ERROR: \(error)\n".utf8))
-    exit(1)
 }
+
+print(MothApplication.startupSummary(platform: "Linux"))
+
+if CommandLine.arguments.contains("--ipc-smoke") {
+    do {
+        try runPluginHostPingSmokeTest()
+        print("[MothTextLinux] IPC smoke test passed")
+        exit(EXIT_SUCCESS)
+    } catch {
+        writeError("[MothTextLinux] IPC smoke test failed: \(error.localizedDescription)")
+        exit(EXIT_FAILURE)
+    }
+}
+
+// Normal application startup must not depend on the optional plugin host.
+// Phase M0 still exposes a terminal proof shell; a Luna-rendered Moth window is
+// introduced by the paired Luna 5E / Moth M1 application integration work.
+print("[MothTextLinux] Core application bootstrap passed")
+print("[MothTextLinux] Plugin services are optional; use --ipc-smoke to test them")

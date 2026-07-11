@@ -14,7 +14,7 @@ let package = Package(
         .library(name: "MothWorkspace", targets: ["MothWorkspace"]),
         .library(name: "MothApplication", targets: ["MothApplication"]),
         .library(name: "MothIPC", targets: ["MothIPC"]),
-        .executable(name: "MothTextPluginHost", targets: ["MothPluginHost"]),
+        .executable(name: "MothPluginHost", targets: ["MothPluginHost"]),
         .executable(name: "MothTextLinux", targets: ["MothTextLinux"]),
         .executable(name: "MothTextMac", targets: ["MothTextMac"]),
     ],

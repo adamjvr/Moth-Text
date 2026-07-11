@@ -114,6 +114,7 @@ See:
 - [`docs/LUNA_INTEGRATION.md`](docs/LUNA_INTEGRATION.md)
 - [`docs/ROADMAP.md`](docs/ROADMAP.md)
 - [`docs/SUBMODULE_WORKFLOW.md`](docs/SUBMODULE_WORKFLOW.md)
+- [`docs/PAIRED_ITERATION_PROTOCOL.md`](docs/PAIRED_ITERATION_PROTOCOL.md)
 
 ## Build
 
@@ -134,7 +135,7 @@ Then:
 The plugin host and Linux IPC client remain available as architecture proofs:
 
 ```bash
-swift run MothTextPluginHost
+swift run MothPluginHost
 swift run MothTextLinux
 ```
 
@@ -143,3 +144,20 @@ swift run MothTextLinux
 Moth Text is licensed under the **Mozilla Public License 2.0 (`MPL-2.0`)**, matching Luna-UI. The complete license text is provided in [`LICENSE`](LICENSE). Source files, tests, package manifests, and repository scripts carry concise SPDX identifiers.
 
 The MPL-2.0 applies on a file-level basis: modifications to covered Moth Text files remain available under the MPL-2.0, while the license permits Moth Text to be combined with separately licensed code in a larger work.
+
+
+## Application and IPC smoke tests
+
+Normal Moth startup must succeed without the optional plugin host:
+
+```bash
+swift run MothTextLinux
+```
+
+Run the separate plugin-host IPC proof with:
+
+```bash
+./scripts/smoke-test-plugin-host.sh
+```
+
+The plugin host is exposed as the `MothPluginHost` executable product.
