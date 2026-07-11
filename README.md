@@ -1,215 +1,139 @@
-# 🦋 Moth-Text  
-### **Moth is Sublime.**
+# Moth Text
 
-**Moth-Text** is a **from-scratch, open-source reimplementation of Sublime Text**, written entirely in **Swift** and powered by a custom UI engine called **Luna-UI**.
+**Moth Text** is a clean-room, open-source, Swift-native editor intended to
+reproduce the speed, command-driven workflow, extensibility, and user-facing
+behavior that make Sublime Text distinctive, while providing a modern and open
+foundation for additional capabilities.
 
-Like Linux in relation to UNIX, **Moth is not Sublime Text — but it *is* Sublime in behavior, compatibility, and philosophy.**
+Moth is not a Sublime Text fork and does not copy Sublime's proprietary internals.
+Compatibility is implemented through Moth-owned models and adapters.
 
-> **Moth is Sublime.**  
-> Same ideas. Same workflows. Same power.  
-> Clean-room implementation. Modern internals. Open future.
+## Luna UI relationship
 
----
+Moth is the flagship application for **Luna UI**, a custom-rendered Swift desktop
+UI framework. Luna exists under the pressure of Moth's editor-class requirements,
+but remains reusable for unrelated applications and optional document/developer
+components.
 
-## 🎯 What “Moth is Sublime” Means
-
-“Moth is Sublime” is not a slogan about imitation — it’s a statement of **compatibility by design**.
-
-| Sublime Text | Moth-Text |
-|-------------|----------|
-| Proprietary implementation | Open-source implementation |
-| C++ / Python | Swift / Python |
-| Custom UI engine | **Luna-UI** |
-| Plugin-driven | Plugin-driven |
-| UNIX-style architecture | UNIX-style architecture |
-
-Just as:
-> **Linux is UNIX-compatible without being UNIX**
-
-So:
-> **Moth is Sublime without being Sublime Text**
-
----
-
-## 🎯 Project Goals
-
-- **Full Sublime-compatible behavior**
-- **Native performance on macOS and Linux**
-- **Long-term API and plugin stability**
-- **Clean separation of UI, editor core, and plugins**
-- **No dependency on web tech or heavyweight UI frameworks**
-
----
-
-## ❌ What Moth-Text Is Not
-
-- Not a fork of Sublime Text  
-- Not a re-skin or clone UI  
-- Not Electron  
-- Not SwiftUI, GTK, or Qt  
-- Not a web editor in disguise  
-
-This is a **clean-room reimplementation**, built to last decades.
-
----
-
-## 🧩 Sublime Compatibility Targets
-
-Moth-Text is being built to match **Sublime’s behavior and ecosystem**, including:
-
-### ✔ Editor Semantics
-- Identical selection and multi-cursor model
-- Same command-driven architecture
-- Same keybinding resolution logic
-- Same editing edge cases and behaviors
-
-### ✔ Package & Plugin System
-- Python 3 plugin runtime
-- Sublime-style package layout
-- Command registration
-- Event hooks
-- View / window APIs
-- LSP integration
-
-> The long-term goal is that **most Sublime packages can be ported with little or no modification**, and many will work unchanged.
-
----
-
-## 🧠 Architecture Overview
-
-Moth-Text intentionally mirrors Sublime’s proven architecture, while modernizing the internals:
-
-```
-┌─────────────────────────────┐
-│         Moth-Text App       │
-│                             │
-│  ┌──────── Luna-UI ──────┐  │
-│  │  Windowing            │  │
-│  │  Rendering (GPU/CPU)  │  │
-│  │  Input                │  │
-│  │  Text Shaping         │  │
-│  └──────────────────────┘  │
-│                             │
-│  ┌────── Editor Core ────┐  │
-│  │  Buffers              │  │
-│  │  Views                │  │
-│  │  Commands             │  │
-│  │  Selections           │  │
-│  └──────────────────────┘  │
-│                             │
-│  IPC (Unix domain sockets)  │
-│                             │
-│  ┌────── Plugin Host ─────┐ │
-│  │  Python Runtime        │ │
-│  │  Packages              │ │
-│  │  LSP / Tools           │ │
-│  └───────────────────────┘ │
-└─────────────────────────────┘
+```text
+Luna owns reusable editor anatomy.
+Moth owns editor meaning, workflow, compatibility, and product policy.
 ```
 
----
+Luna supplies rendering, platform hosts, input, accessibility, themes, general
+widgets, and optional reusable components such as text surfaces, gutters, search
+panels, popups, tabs, split containers, and developer-tool views.
 
-## 🌙 Luna-UI — Why Moth Can Be Sublime
+Moth supplies production source buffers, editor transactions, multiple cursors,
+commands, projects, workspaces, settings, sessions, syntax, packages, plugins,
+language services, and Sublime compatibility.
 
-**Luna-UI** is the reason this project exists at all.
+## Repository relationship
 
-### What Luna-UI Is
-A **from-scratch, cross-platform UI and rendering engine**, written in Swift, designed specifically for editor-class applications.
+Luna is an independent repository pinned inside Moth at:
 
-It provides:
-- Native window creation (macOS + Linux)
-- GPU-accelerated rendering (CPU fallback)
-- Deterministic input handling
-- Pixel-perfect custom widgets
-- Exact text metrics and cursor positioning
-- First-class support for:
-  - Ligatures
-  - Complex scripts
-  - High-DPI rendering
-
-### Why Not Use Existing UI Toolkits?
-General UI frameworks optimize for:
-- Forms
-- Buttons
-- Dialogs
-
-Editors need:
-- Absolute control over text
-- Predictable timing
-- Zero layout surprises
-- Maximum performance
-
-Sublime solved this with a custom engine.  
-**Moth does the same — openly — with Luna-UI.**
-
----
-
-## 🧪 Project Status & Roadmap
-
-### ✅ Phase 0 — Foundation *(Complete)*
-- Swift toolchain validated on Linux and macOS
-- Unix domain socket IPC
-- JSON-based protocol
-- Separate plugin host process
-
-### ✅ Phase 0b — Persistent Runtime *(Complete)*
-- Long-running app lifecycle
-- IPC alongside UI event loop
-- Confirms editor-class architecture
-
-### 🚧 Phase 1 — Luna-UI Core *(In Progress)*
-- Native windowing
-- Render loop
-- Input abstraction
-- Text shaping pipeline
-
-### 🔮 Phase 2 — Editor Core
-- Buffers, views, selections
-- Undo/redo model
-- Multi-cursor editing
-- Command engine
-
-### 🔮 Phase 3 — Sublime-Compatible Ecosystem
-- Python plugin host
-- Package manager
-- Command palette
-- Key bindings
-- Themes
-
----
-
-## 📁 Repository Structure
-
-```
-src/
-  IPC/              # IPC protocol and transport
-  PluginHost/       # Out-of-process plugin runtime
-  Apps/
-    Linux/          # Linux entry point
-    Mac/            # macOS entry point
+```text
+Dependencies/Luna-UI
 ```
 
-> **Luna-UI lives in a separate repository** and will be integrated once stable.
+The canonical Git repository tracks that path as a submodule. SwiftPM consumes it
+as a local package, so each Moth revision records the exact Luna revision it was
+tested against.
 
----
+Clone with:
 
-## 🧠 Why This Project Exists
+```bash
+git clone --recurse-submodules <moth-repository-url>
+cd Moth-Text
+./scripts/bootstrap.sh
+```
 
-Sublime Text proved that:
-- Editors can be fast
-- Native UI matters
-- Plugins can be elegant
+For an existing clone:
 
-Moth-Text asks:
+```bash
+git submodule update --init --recursive
+./scripts/test-all.sh
+```
 
-> **What if we rebuilt Sublime today — openly, cleanly, and for the long term?**
+## Current module structure
 
----
+```text
+Sources/
+  MothTextCore/       headless source-buffer and editing foundations
+  MothEditor/         source-editor semantics and view state
+  MothWorkspace/      sheets, groups, projects, sessions, product policy
+  MothApplication/    shared Luna/product composition
+  MothIPC/            JSON protocol and Unix-domain-socket transport
+  MothPluginHost/     out-of-process service/plugin host proof
+  MothTextLinux/      thin Linux platform entry point
+  MothTextMac/        thin macOS platform entry point
 
-## 🦋 Final Word
+Dependencies/
+  Luna-UI/            pinned first-party framework dependency
 
-**Moth is Sublime.**
+Tests/                headless module and protocol tests
+Resources/            Moth-owned themes, menus, settings, keymaps, syntaxes
+```
 
-Not by copying code —  
-but by honoring the ideas that made Sublime great  
-and re-implementing them for the next decade.
+## Architectural laws
+
+- Luna never depends on Moth.
+- `MothTextCore` does not depend on Luna or platform UI frameworks.
+- A buffer is separate from any visible editor view.
+- Multiple views may share one buffer and retain independent view state.
+- Platform executables remain thin host entry points.
+- Moth's interior is rendered with Luna rather than SwiftUI, AppKit widgets,
+  GTK widgets, Qt, Electron, or web technology.
+- Reusable editor-adjacent components may live in optional Luna modules, but
+  Moth-specific behavior and compatibility remain in Moth.
+
+## Current status
+
+### M0 — Repository and Luna integration foundation
+
+Implemented:
+
+- SwiftPM-conventional repository layout;
+- Luna local-package/submodule path;
+- foundational Moth product targets;
+- preserved IPC and plugin-host proof;
+- initial buffer/view identity distinction;
+- product/platform/framework boundary documentation;
+- bootstrap and verification scripts.
+
+### Next: M1 — Buffer/view and document ownership
+
+M1 will be developed alongside Luna Phase 5E. The immediate goal is to establish
+one real Moth source buffer with two independent editor views, while extracting
+product policy from Luna proof components without deleting reusable Luna
+functionality.
+
+See:
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- [`docs/LUNA_INTEGRATION.md`](docs/LUNA_INTEGRATION.md)
+- [`docs/ROADMAP.md`](docs/ROADMAP.md)
+- [`docs/SUBMODULE_WORKFLOW.md`](docs/SUBMODULE_WORKFLOW.md)
+
+## Build
+
+Luna's current Linux development path requires SDL2, HarfBuzz, FreeType, and
+`pkg-config`:
+
+```bash
+sudo apt update
+sudo apt install libsdl2-dev libharfbuzz-dev libfreetype6-dev pkg-config
+```
+
+Then:
+
+```bash
+./scripts/bootstrap.sh
+```
+
+The plugin host and Linux IPC client remain available as architecture proofs:
+
+```bash
+swift run MothTextPluginHost
+swift run MothTextLinux
+```

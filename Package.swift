@@ -1,44 +1,95 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.0
+// SPDX-License-Identifier: MPL-2.0
 import PackageDescription
 
 let package = Package(
     name: "MothText",
     platforms: [
         .macOS(.v13)
+        // Linux supported implicitly.
     ],
     products: [
-        .library(name: "IPC", targets: ["IPC"]),
-        .executable(name: "MothTextPluginHost", targets: ["PluginHost"]),
-        .executable(name: "MothTextLinux", targets: ["LinuxApp"]),
-        .executable(name: "MothTextMac", targets: ["MacApp"]),
+        .library(name: "MothTextCore", targets: ["MothTextCore"]),
+        .library(name: "MothEditor", targets: ["MothEditor"]),
+        .library(name: "MothWorkspace", targets: ["MothWorkspace"]),
+        .library(name: "MothApplication", targets: ["MothApplication"]),
+        .library(name: "MothIPC", targets: ["MothIPC"]),
+        .executable(name: "MothTextPluginHost", targets: ["MothPluginHost"]),
+        .executable(name: "MothTextLinux", targets: ["MothTextLinux"]),
+        .executable(name: "MothTextMac", targets: ["MothTextMac"]),
+    ],
+    dependencies: [
+        // The repository pins Luna through Dependencies/Luna-UI. In the canonical
+        // Git checkout this path is a Git submodule; SwiftPM consumes it locally.
+        .package(path: "Dependencies/Luna-UI"),
     ],
     targets: [
         .target(
-            name: "IPC",
-            path: "src/IPC"
+            name: "MothTextCore"
+        ),
+
+        .target(
+            name: "MothEditor",
+            dependencies: ["MothTextCore"]
+        ),
+
+        .target(
+            name: "MothWorkspace",
+            dependencies: [
+                "MothEditor",
+                "MothTextCore",
+            ]
+        ),
+
+        .target(
+            name: "MothIPC"
+        ),
+
+        .target(
+            name: "MothApplication",
+            dependencies: [
+                "MothEditor",
+                "MothIPC",
+                "MothTextCore",
+                "MothWorkspace",
+                .product(name: "LunaCore", package: "Luna-UI"),
+                .product(name: "LunaUI", package: "Luna-UI"),
+            ]
         ),
 
         .executableTarget(
-            name: "PluginHost",
-            dependencies: ["IPC"],
-            path: "src/PluginHost"
+            name: "MothPluginHost",
+            dependencies: ["MothIPC"]
         ),
 
-        // NOTE:
-        // - Phase 0 uses a CLI client on Linux to verify IPC.
-        // - In Phase 0b we will introduce GTK4 and a proper Linux UI target.
         .executableTarget(
-            name: "LinuxApp",
-            dependencies: ["IPC"],
-            path: "src/Apps/Linux"
+            name: "MothTextLinux",
+            dependencies: [
+                "MothApplication",
+                "MothIPC",
+            ]
         ),
 
-        // Stub: In Phase 0b/1 we’ll convert this into a real SwiftUI .app target
-        // via Xcode (or a proper app-bundle build setup).
         .executableTarget(
-            name: "MacApp",
-            dependencies: ["IPC"],
-            path: "src/Apps/Mac"
+            name: "MothTextMac",
+            dependencies: ["MothApplication"]
+        ),
+
+        .testTarget(
+            name: "MothTextCoreTests",
+            dependencies: ["MothTextCore"]
+        ),
+        .testTarget(
+            name: "MothEditorTests",
+            dependencies: ["MothEditor", "MothTextCore"]
+        ),
+        .testTarget(
+            name: "MothWorkspaceTests",
+            dependencies: ["MothWorkspace", "MothEditor", "MothTextCore"]
+        ),
+        .testTarget(
+            name: "MothIPCTests",
+            dependencies: ["MothIPC"]
         ),
     ]
 )
