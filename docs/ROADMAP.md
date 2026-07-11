@@ -68,3 +68,11 @@ Paired with Luna tab-overflow and split-container work.
 - project indexing;
 - static package resources;
 - plugin runtime/API work only after command, document, and workspace contracts stabilize.
+
+## Phase M0.1 — MPL-2.0 License Alignment
+
+**Status:** complete.
+
+Moth Text now uses the Mozilla Public License 2.0 (`MPL-2.0`), matching Luna-UI. The previous project license has been replaced with the complete MPL-2.0 text, and concise SPDX identifiers have been added to the Swift package manifest, source files, tests, and repository scripts.
+
+This keeps the flagship application and its UI framework under the same file-level copyleft licensing baseline while preserving their independent repositories and histories.

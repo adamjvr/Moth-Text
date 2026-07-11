@@ -129,3 +129,7 @@ stabilized until buffers, commands, documents, and workspace ownership are stabl
 5. Moth themes and compatibility files remain in Moth resources.
 6. A reusable capability may be promoted into an optional Luna component only
    when its API is product-neutral and useful to another plausible application.
+
+## Licensing Baseline
+
+Moth Text and Luna-UI are independently maintained repositories licensed under the Mozilla Public License 2.0 (`MPL-2.0`). The Luna-UI submodule retains its own license notices and history. Moth source files remain covered by the Moth repository's MPL-2.0 license; importing or linking Luna through SwiftPM does not merge the two repositories or their ownership boundaries.

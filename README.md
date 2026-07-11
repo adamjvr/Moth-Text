@@ -137,3 +137,9 @@ The plugin host and Linux IPC client remain available as architecture proofs:
 swift run MothTextPluginHost
 swift run MothTextLinux
 ```
+
+## License
+
+Moth Text is licensed under the **Mozilla Public License 2.0 (`MPL-2.0`)**, matching Luna-UI. The complete license text is provided in [`LICENSE`](LICENSE). Source files, tests, package manifests, and repository scripts carry concise SPDX identifiers.
+
+The MPL-2.0 applies on a file-level basis: modifications to covered Moth Text files remain available under the MPL-2.0, while the license permits Moth Text to be combined with separately licensed code in a larger work.
