@@ -55,16 +55,47 @@ MothTextCore
 
 ## Buffer and view law
 
-A source buffer is not a visible editor view.
+A source buffer is not a visible editor view. M1.1 implements this distinction
+as an executable contract rather than only an identity model.
 
 ```text
-one Moth buffer
-  +-- editor view A: selection, caret, scroll, folds
-  +-- editor view B: independent selection, caret, scroll, folds
+MothInMemorySourceBuffer
+  text + revision + saved revision
+  +-- MothEditorViewState A
+  |     caret + selection + preferred column + viewport
+  +-- MothEditorViewState B
+        independent caret + selection + preferred column + viewport
 ```
 
-This distinction must exist before split panes, cloned views, transient sheets,
-or durable workspace sessions are implemented.
+Edits are Moth-owned transactions applied to the shared buffer. Each view observes
+the new revision and clamps its own presentation state without inheriting the
+other view's caret, selection, preferred column, or scroll position.
+
+This distinction exists before split panes, cloned views, transient sheets, or
+durable workspace sessions are implemented.
+
+## Luna adapter boundary
+
+`MothApplication` is the only layer that projects production Moth state into Luna's
+product-neutral document/view contracts.
+
+```text
+MothTextCore source buffer
+        |
+        +--> MothLunaTextStorageAdapter --> LunaTextStorageSnapshot
+
+MothEditorViewState
+        |
+        +--> MothLunaViewProjection ----> LunaDocumentViewPresentationState
+
+MothFindSession
+        |
+        +--> MothLunaFindPanelSession ---> LunaFindPanelSession
+```
+
+The adapters expose immutable snapshots and presentation state. They do not move
+source-buffer ownership, transactions, dirty-state policy, or replacement policy
+into Luna. `MothTextCore` and `MothEditor` remain usable headlessly.
 
 ## Module ownership
 
@@ -72,13 +103,13 @@ or durable workspace sessions are implemented.
 
 Owns pure editor-domain primitives:
 
-- source-buffer identity and storage;
-- typed text coordinates;
-- selections and cursor sets;
-- edit transactions;
-- undo and redo;
-- revision tracking;
-- independent editor-view state primitives.
+- source-buffer identity and authoritative storage;
+- typed UTF-8 text coordinates and ranges;
+- immutable source-buffer snapshots;
+- edit transactions and revision tracking;
+- saved-revision and dirty-state ownership.
+
+Undo/redo history and cursor-set policy remain subsequent Moth work.
 
 It must remain headless and should not import Luna.
 
@@ -86,12 +117,12 @@ It must remain headless and should not import Luna.
 
 Owns source-editor semantics:
 
-- command behavior;
-- multiple-cursor operations;
-- find sessions over Moth buffers;
+- independent editor-view state and revision synchronization;
+- command-oriented insert/delete/replace behavior;
+- literal and regular-expression find/replace sessions over Moth buffers;
+- future multiple-cursor operations and transaction grouping;
 - completion insertion policy;
 - syntax and diagnostic interpretation;
-- editor transaction grouping;
 - decorations mapped into Luna presentation primitives.
 
 ### MothWorkspace

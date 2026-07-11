@@ -103,10 +103,13 @@ let package = Package(
             name: "MothApplicationTests",
             dependencies: [
                 "MothApplication",
+                "MothEditor",
+                "MothTextCore",
                 .product(name: "LunaCore", package: "Luna-UI"),
                 .product(name: "LunaHostCore", package: "Luna-UI"),
                 .product(name: "LunaInput", package: "Luna-UI"),
                 .product(name: "LunaRender", package: "Luna-UI"),
+                .product(name: "LunaUI", package: "Luna-UI"),
             ]
         ),
 

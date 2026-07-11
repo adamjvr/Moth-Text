@@ -16,6 +16,8 @@
 
 ## M1 — Buffer/view and document ownership
 
+**Status: M1.1 implemented and validated against Luna Phase 5E.2.**
+
 Paired with Luna Phase 5E.
 
 - define the first real Moth source-buffer protocol and implementation;
@@ -26,18 +28,36 @@ Paired with Luna Phase 5E.
 - define Moth find-session policy behind Luna search-panel presentation;
 - add headless transaction, selection, and view-state tests.
 
-Exit condition:
+Delivered in M1.1:
+
+- typed UTF-8 offsets, ranges, and monotonic buffer revisions;
+- a Moth-owned source-buffer protocol and thread-safe in-memory implementation;
+- insert, replace, backward-delete, and forward-delete transactions;
+- saved-revision and dirty-state ownership in the buffer;
+- independent caret, selection, preferred-column, and viewport state per view;
+- literal and regular-expression find/replace policy in MothEditor;
+- neutral Luna snapshot, view-projection, and find-session adapters in MothApplication;
+- a Luna-rendered shell backed by real Moth text rather than placeholder bars;
+- tests proving two views retain independent state while observing one shared buffer.
+
+Exit condition achieved:
 
 > Two Moth editor views can share one buffer while retaining independent selection,
 > caret, and viewport state, with no Luna dependency in MothTextCore.
 
-## M2 — First Luna-rendered Moth application slice
+## M2 — First file-backed Luna-rendered Moth application slice
 
-- attach platform entry points to supported Luna hosts;
-- open and save a plain-text document;
-- render one Moth editor view through Luna;
+**Status: next product phase.**
+
+M1.1 already establishes the real-buffer rendering path and direct editing proof.
+M2 turns that proof into the first file-backed editor workflow:
+
+- open and save a plain-text document through Luna host services;
+- give Moth explicit document identity, URL, encoding, and save-state policy;
+- replace demo startup content with a product document/session bootstrap;
 - add one product-owned theme resource;
-- connect commands, menu descriptions, status information, and find UI;
+- connect command descriptions, menu actions, status information, and visible find UI;
+- add undo/redo transaction grouping for the single-view slice;
 - retain native platform services only behind Luna host contracts.
 
 ## M3 — Workspace fundamentals
@@ -81,7 +101,7 @@ This keeps the flagship application and its UI framework under the same file-lev
 
 ## Phase M0.2 — Real Luna Application Shell
 
-**Status:** implemented in this iteration, pending local graphical smoke test.
+**Status:** complete in the preceding iteration.
 
 MothTextLinux now consumes LunaHostSDL's public application runner instead of
 printing a bootstrap message and returning immediately.

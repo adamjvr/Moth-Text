@@ -1,0 +1,4 @@
+Moth Text M1.1 source snapshot
+Commit: 76bcfc7
+Pinned Luna: debc3bbc548ce3cdffcfd549cea9062d4b9dd2a1
+This ZIP intentionally excludes Dependencies/Luna-UI. Extract the Luna source ZIP into Moth-Text/Dependencies/Luna-UI for a ZIP-based build.

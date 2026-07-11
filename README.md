@@ -101,12 +101,22 @@ Implemented:
 - product/platform/framework boundary documentation;
 - bootstrap and verification scripts.
 
-### Next: M1 — Buffer/view and document ownership
+### M1.1 — Shared buffer and independent editor views
 
-M1 will be developed alongside Luna Phase 5E. The immediate goal is to establish
-one real Moth source buffer with two independent editor views, while extracting
-product policy from Luna proof components without deleting reusable Luna
-functionality.
+Implemented against Luna Phase 5E.2:
+
+- one authoritative, revisioned Moth source buffer;
+- typed UTF-8 offsets, ranges, snapshots, transactions, and dirty state;
+- two independent editor views over the same buffer;
+- Moth-owned find/replace policy behind Luna presentation contracts;
+- a graphical Luna shell that renders and edits real Moth buffer content;
+- headless architecture and behavior tests preserving the Moth/Luna boundary.
+
+### Next: M2 — First file-backed editor workflow
+
+The next product slice adds open/save document lifecycle, host file services,
+undo/redo grouping, a visible find panel, command/menu routing, and a Moth-owned
+theme around the now-working buffer/view foundation.
 
 See:
 
@@ -132,11 +142,16 @@ Then:
 ./scripts/bootstrap.sh
 ```
 
-The plugin host and Linux IPC client remain available as architecture proofs:
+Launch the graphical editor shell with:
 
 ```bash
-swift run MothPluginHost
 swift run MothTextLinux
+```
+
+Run the optional plugin-host proof separately with:
+
+```bash
+./scripts/smoke-test-plugin-host.sh
 ```
 
 ## License
@@ -167,4 +182,5 @@ The plugin host is exposed as the `MothPluginHost` executable product.
 `swift run MothTextLinux` now opens a real Luna-rendered resizable window and
 runs until the window is closed. The current M0.2 shell proves application
 hosting, custom rendering, input invalidation, resizing, and clean shutdown.
-It intentionally precedes the production buffer/view integration of M1.
+It now renders and edits a real Moth-owned source buffer through Luna Phase 5E.2
+adapters. File open/save lifecycle and the visible product find workflow arrive in M2.

@@ -67,3 +67,21 @@ Moth owns:
 - file and workspace lifecycle;
 - Sublime-compatible commands, settings, keymaps, packages, and sessions;
 - syntax and language-service orchestration.
+
+## Phase 5E.2 compatibility point
+
+Moth M1.1 is validated against Luna commit:
+
+```text
+debc3bbc548ce3cdffcfd549cea9062d4b9dd2a1
+feat(document): add Luna Phase 5E.2 adapter seams
+```
+
+That Luna revision supplies stable document/view identities, immutable UTF-8 text
+snapshots, content revisions, independent presentation state, revision invalidation,
+injected find-panel session contracts, and a public CPU bitmap text renderer.
+
+Moth consumes those contracts only from `MothApplication`. `MothTextCore` owns the
+authoritative text and revisions, while `MothEditor` owns view and find/replace
+policy. Advancing past this Luna revision requires rerunning both repositories'
+headless suites and the Moth graphical and IPC smoke checks.
