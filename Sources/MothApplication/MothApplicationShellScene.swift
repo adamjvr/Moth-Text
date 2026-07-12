@@ -34,6 +34,7 @@ public struct MothApplicationShellScene {
     private var dialogService: any LunaDialogService
     private var suppressedTextInput: String?
     private var paneInteractionState: LunaPaneContainerInteractionState
+    private var textSelectionInteractionState: LunaTextSelectionInteractionState
     private var currentCursorIntent: LunaCursorIntent
 
     public init(
@@ -64,6 +65,7 @@ public struct MothApplicationShellScene {
         self.dialogService = dialogService
         self.suppressedTextInput = nil
         self.paneInteractionState = LunaPaneContainerInteractionState()
+        self.textSelectionInteractionState = LunaTextSelectionInteractionState()
         self.currentCursorIntent = .arrow
         self.statusMessage = document.snapshot().isUntitled
             ? "Untitled document — Ctrl+Shift+S to Save As"
@@ -99,9 +101,11 @@ public struct MothApplicationShellScene {
 
     public var buffer: MothInMemorySourceBuffer { document.buffer }
     public var documentSnapshot: MothDocumentSnapshot { document.snapshot() }
-    public var wantsContinuousRendering: Bool { false }
+    public var wantsContinuousRendering: Bool { textSelectionInteractionState.wantsContinuousUpdates }
     public var cursorIntent: LunaCursorIntent { currentCursorIntent }
-    public var wantsPointerCapture: Bool { paneInteractionState.wantsPointerCapture }
+    public var wantsPointerCapture: Bool {
+        paneInteractionState.wantsPointerCapture || textSelectionInteractionState.wantsPointerCapture
+    }
     public var bufferSnapshot: MothSourceBufferSnapshot { buffer.snapshot() }
 
     public mutating func openDocument(at url: URL) throws {
@@ -155,8 +159,9 @@ public struct MothApplicationShellScene {
         case .pointerCaptureLost:
             paneInteractionState.cancelDrag()
             paneInteractionState.hoveredSplitID = nil
+            textSelectionInteractionState.cancel()
             currentCursorIntent = .arrow
-            statusMessage = "Pane resize cancelled after pointer capture loss"
+            statusMessage = "Pointer selection/resize cancelled after capture loss"
             return LunaFrameInvalidationSet(.input)
 
         case .pointer(let pointer):
@@ -186,6 +191,7 @@ public struct MothApplicationShellScene {
     }
 
     public mutating func render(into framebuffer: inout LunaFramebuffer) {
+        advanceTextSelectionAutoscroll()
         let width = framebuffer.width
         let height = framebuffer.height
         let palette = MothApplicationTheme.renderPalette
@@ -294,6 +300,7 @@ public struct MothApplicationShellScene {
     }
 
     private func resolvedCursorIntent(at point: LunaPointI) -> LunaCursorIntent {
+        if textSelectionInteractionState.isSelecting { return .text }
         let container = paneContainer()
         if let dividerIntent = container.cursorIntent(at: point) {
             return dividerIntent
@@ -309,46 +316,136 @@ public struct MothApplicationShellScene {
     private mutating func handlePointer(_ event: LunaPointerEvent) {
         if event.phase == .down { pointerAccentIsActive.toggle() }
 
-        let wasDragging = paneInteractionState.isDraggingDivider
+        let wasDraggingDivider = paneInteractionState.isDraggingDivider
         let container = paneContainer()
         var workspace = paneWorkspace
-        var interaction = paneInteractionState
-        let result = container.handlePointerEvent(
+        var paneInteraction = paneInteractionState
+        let paneResult = container.handlePointerEvent(
             event,
             state: &workspace,
-            interactionState: &interaction
+            interactionState: &paneInteraction
         )
         paneWorkspace = workspace
-        paneInteractionState = interaction
+        paneInteractionState = paneInteraction
         currentCursorIntent = resolvedCursorIntent(at: event.location)
 
-        let ownsDividerGesture = wasDragging || interaction.isDraggingDivider || result.resizedSplitID != nil
+        let ownsDividerGesture = wasDraggingDivider || paneInteraction.isDraggingDivider || paneResult.resizedSplitID != nil
         if ownsDividerGesture {
+            textSelectionInteractionState.cancel()
             resetWrappedScrollAnchors()
-            statusMessage = interaction.isDraggingDivider
+            statusMessage = paneInteraction.isDraggingDivider
                 ? "Resizing editor panes"
                 : "Editor pane resize complete"
             return
         }
 
-        guard event.phase == .down,
-              let pane = paneLayout().paneFrames.first(where: { $0.bounds.contains(x: event.location.x, y: event.location.y) }) else {
+        let target: (paneID: LunaPaneID, surface: MothPaneEditorSurface)?
+        if event.phase == .down {
+            target = paneSurface(at: event.location)
+        } else {
+            target = paneSurface(forTextSurfaceID: textSelectionInteractionState.activeSurfaceID)
+        }
+
+        guard let target else {
+            if event.phase == .down { textSelectionInteractionState.cancel() }
+            currentCursorIntent = resolvedCursorIntent(at: event.location)
             return
         }
 
-        guard let contentFrame = paneContentFrame(for: pane.paneID),
-              contentFrame.contentBounds.contains(x: event.location.x, y: event.location.y) else {
-            currentCursorIntent = .arrow
-            return
+        let textView = target.surface.textView
+        let presentation = viewState(for: target.paneID)
+        let currentCaret = textView.document.location(
+            forAbsoluteUTF8Offset: presentation.caret.rawValue
+        )
+        let currentSelection = presentation.selection.map {
+            LunaTextRange(
+                anchor: textView.document.location(forAbsoluteUTF8Offset: $0.anchor.rawValue),
+                focus: textView.document.location(forAbsoluteUTF8Offset: $0.focus.rawValue)
+            )
         }
 
-        let surface = makePaneSurface(paneID: pane.paneID, contentFrame: contentFrame)
-        guard let hit = surface.textView.textHitTest(event.location) else { return }
-        let offset = surface.textView.document.absoluteUTF8Offset(for: hit.location)
-        mutateView(for: pane.paneID) { view in
-            view.setCaret(MothTextOffset(rawValue: offset), extendingSelection: event.modifiers.shift)
-            view.preferredUTF8Column = hit.location.utf8Column
+        var selectionInteraction = textSelectionInteractionState
+        let selectionResult = LunaTextSelectionInteraction.handlePointerEvent(
+            event,
+            in: textView,
+            currentCaret: currentCaret,
+            currentSelection: currentSelection,
+            state: &selectionInteraction
+        )
+        textSelectionInteractionState = selectionInteraction
+        currentCursorIntent = resolvedCursorIntent(at: event.location)
+
+        guard selectionResult.didConsumeEvent else { return }
+        applyTextSelectionResult(selectionResult, paneID: target.paneID, textView: textView)
+        let selectedBytes = viewState(for: target.paneID).selection?.normalizedRange.length ?? 0
+        let gesture: String
+        switch selectionResult.granularity ?? selectionInteraction.granularity {
+        case .character: gesture = selectionResult.didEndGesture ? "selection complete" : "drag selection"
+        case .word: gesture = "word selection"
+        case .line: gesture = "line selection"
         }
+        statusMessage = "C1B \(gesture) in \(target.paneID.rawValue): bytes=\(selectedBytes)"
+    }
+
+    private func paneSurface(at point: LunaPointI) -> (paneID: LunaPaneID, surface: MothPaneEditorSurface)? {
+        let layout = paneLayout()
+        guard let frame = layout.contentFrames(metrics: .editor).first(where: {
+            $0.contentBounds.contains(x: point.x, y: point.y)
+        }) else { return nil }
+        return (frame.paneID, makePaneSurface(paneID: frame.paneID, contentFrame: frame))
+    }
+
+    private func paneSurface(
+        forTextSurfaceID surfaceID: LunaNodeID?
+    ) -> (paneID: LunaPaneID, surface: MothPaneEditorSurface)? {
+        guard let surfaceID else { return nil }
+        let layout = paneLayout()
+        for frame in layout.contentFrames(metrics: .editor) {
+            let surface = makePaneSurface(paneID: frame.paneID, contentFrame: frame)
+            if surface.textView.id == surfaceID { return (frame.paneID, surface) }
+        }
+        return nil
+    }
+
+    private mutating func applyTextSelectionResult(
+        _ result: LunaTextSelectionInteractionResult,
+        paneID: LunaPaneID,
+        textView: LunaStaticTextView
+    ) {
+        if result.requestedVisualRowDelta != 0 {
+            let scrolled = textView.scrolled(byLineDelta: result.requestedVisualRowDelta)
+            mutateView(for: paneID) { view in
+                view.viewport.firstVisibleLine = scrolled.scrollTopLine
+                view.viewport.firstVisibleVisualRow = scrolled.scrollTopVisualRow
+            }
+        }
+        guard result.didChangeSelection, let selection = result.selection else { return }
+        let anchor = MothTextOffset(
+            rawValue: textView.document.absoluteUTF8Offset(for: selection.anchor)
+        )
+        let focus = MothTextOffset(
+            rawValue: textView.document.absoluteUTF8Offset(for: selection.focus)
+        )
+        mutateView(for: paneID) { view in
+            view.setSelection(anchor: anchor, focus: focus)
+            view.preferredUTF8Column = selection.focus.utf8Column
+        }
+    }
+
+    private mutating func advanceTextSelectionAutoscroll() {
+        guard textSelectionInteractionState.wantsContinuousUpdates,
+              let target = paneSurface(forTextSurfaceID: textSelectionInteractionState.activeSurfaceID)
+        else { return }
+
+        var interaction = textSelectionInteractionState
+        let result = LunaTextSelectionInteraction.advanceAutoscroll(
+            in: target.surface.textView,
+            state: &interaction
+        )
+        textSelectionInteractionState = interaction
+        guard result.requestedVisualRowDelta != 0 || result.didChangeSelection else { return }
+        applyTextSelectionResult(result, paneID: target.paneID, textView: target.surface.textView)
+        statusMessage = "C1B edge autoscroll in \(target.paneID.rawValue)"
     }
 
     private mutating func resetWrappedScrollAnchors() {

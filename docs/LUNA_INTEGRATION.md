@@ -68,20 +68,16 @@ Moth owns:
 - Sublime-compatible commands, settings, keymaps, packages, and sessions;
 - syntax and language-service orchestration.
 
-## Phase 5F.2A compatibility point
+## Convergence C1B compatibility point
 
-Moth M2.2A with Convergence C1A requires the matching Luna Convergence C1A revision or newer. The required public seams include `LunaCursorIntent`, `LunaPaneContainerInteractionState`, axis-specific divider cursor intent, and the SDL scene cursor/capture contract. Update it only through:
+Moth M2.2A with Convergence C1B requires the matching Luna Convergence C1B revision or newer. The required public seams include `LunaCursorIntent`, `LunaPaneContainerInteractionState`, `LunaTextSelectionInteractionState`, `LunaTextSelectionInteraction`, clamped wrapped-text hit testing, Unicode-aware word/logical-line range helpers, axis-specific divider cursor intent, and the SDL scene cursor/capture contract. Update it only through:
 
 ```bash
 ./scripts/update-luna.sh
 ```
 
-That Luna revision supplies pane content frames and width-correct soft-wrapped
-text-view geometry in addition to the Phase 5E.2 document/view adapters, public
-`LunaTheme` product, pane mechanics, and application-owned termination veto.
+That Luna revision supplies pane content frames, width-correct soft-wrapped text-view geometry, native cursor/capture behavior, and product-neutral pointer-selection interpretation in addition to the Phase 5E.2 document/view adapters, public `LunaTheme` product, pane mechanics, and application-owned termination veto.
 
-Moth maps Luna pane IDs to its own primary and secondary editor-view state. Luna
-owns bounds, clipping, wrapping, visual-row hit testing, and reflow. Moth retains
-one authoritative file document plus independent caret, selection, and viewport
-state per view. `MothTextCore` remains headless, `MothWorkspace` owns file/document
-lifecycle, and `MothEditor` owns view and find/replace policy.
+Moth maps Luna pane IDs and Luna selection results to its own primary and secondary editor-view state. Luna owns bounds, clipping, wrapping, visual-row hit testing, click-count interpretation, pointer-capture intent, reusable word/line units, and autoscroll requests. Moth retains one authoritative file document plus independent caret, selection, and viewport state per view. `MothTextCore` remains headless, `MothWorkspace` owns file/document lifecycle, and `MothEditor` owns actual view state, transactions, history, and find/replace policy.
+
+C1B does not move selection storage or document mutation into Luna. It only replaces duplicate application gesture decoding with one reusable mechanism.

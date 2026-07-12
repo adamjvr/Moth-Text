@@ -115,6 +115,13 @@ public struct MothEditorViewState: Hashable, Sendable {
         caret = offset
     }
 
+    /// Apply a direction-preserving pointer or command selection and keep the
+    /// caret at its focus edge. Collapsed ranges become ordinary caret state.
+    public mutating func setSelection(anchor: MothTextOffset, focus: MothTextOffset) {
+        caret = focus
+        selection = anchor == focus ? nil : MothTextSelection(anchor: anchor, focus: focus)
+    }
+
     private func lineCount(in text: String) -> Int {
         max(1, text.reduce(into: 1) { count, character in
             if character == "\n" { count += 1 }

@@ -52,6 +52,16 @@ if ! grep -Fq 'var wantsPointerCapture: Bool' "$luna_path/Sources/LunaHostSDL/Lu
     exit 1
 fi
 
+selection_api="$luna_path/Sources/LunaUI/LunaTextSelectionInteraction.swift"
+if ! grep -Fq 'public struct LunaTextSelectionInteractionState' "$selection_api" || \
+   ! grep -Fq 'public enum LunaTextSelectionInteraction' "$selection_api" || \
+   ! grep -Fq 'public static func advanceAutoscroll' "$selection_api" || \
+   ! grep -Fq 'func wordRange(at location: LunaTextLocation)' "$selection_api" || \
+   ! grep -Fq 'func logicalLineRange(at location: LunaTextLocation)' "$selection_api"; then
+    echo "error: the checked-out Luna-UI revision lacks Convergence C1B text-selection APIs." >&2
+    exit 1
+fi
+
 printf 'Luna branch: '
 git -C "$luna_path" branch --show-current
 printf 'Luna commit: '
@@ -60,7 +70,7 @@ printf 'Moth gitlink: '
 git submodule status Dependencies/Luna-UI
 
 cat <<'MSG'
-Luna-UI is ready for Moth Convergence C1A.
+Luna-UI is ready for Moth Convergence C1B.
 The modified Dependencies/Luna-UI gitlink is expected and must be committed with Moth after validation.
 Do not run another plain `git submodule update` before committing Moth.
 MSG

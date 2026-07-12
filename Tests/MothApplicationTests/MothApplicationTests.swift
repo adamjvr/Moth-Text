@@ -472,4 +472,168 @@ final class MothApplicationTests: XCTestCase {
         XCTAssertEqual(scene.cursorIntent, .arrow)
     }
 
+    func testClickDragSelectionIsIndependentPerPane() throws {
+        var scene = MothApplicationShellScene(initialText: "alpha beta gamma")
+        let secondaryBefore = scene.secondaryView
+        let textView = try XCTUnwrap(
+            scene.paneTextView(for: MothApplicationShellScene.primaryPaneID)
+        )
+        let row = try XCTUnwrap(textView.layout().visibleLines.first)
+        let start = LunaPointI(
+            x: row.textBounds.x + textView.metrics.glyphMetrics.advance,
+            y: row.rowBounds.y + row.rowBounds.h / 2
+        )
+        let end = LunaPointI(
+            x: row.textBounds.x + textView.metrics.glyphMetrics.advance * 9,
+            y: row.rowBounds.y + row.rowBounds.h / 2
+        )
+
+        _ = scene.handleHostEvent(
+            .pointer(LunaPointerEvent(phase: .down, location: start)),
+            framebufferSize: scene.framebufferSize
+        )
+        XCTAssertTrue(scene.wantsPointerCapture)
+        _ = scene.handleHostEvent(
+            .pointer(LunaPointerEvent(phase: .moved, location: end, clickCount: 0)),
+            framebufferSize: scene.framebufferSize
+        )
+        _ = scene.handleHostEvent(
+            .pointer(LunaPointerEvent(phase: .up, location: end)),
+            framebufferSize: scene.framebufferSize
+        )
+
+        XCTAssertGreaterThan(scene.primaryView.selection?.normalizedRange.length ?? 0, 0)
+        XCTAssertEqual(scene.secondaryView, secondaryBefore)
+        XCTAssertFalse(scene.wantsPointerCapture)
+    }
+
+    func testDoubleClickSelectsUnicodeWordAndTypingReplacesIt() throws {
+        var scene = MothApplicationShellScene(initialText: "héllo world")
+        let textView = try XCTUnwrap(
+            scene.paneTextView(for: MothApplicationShellScene.primaryPaneID)
+        )
+        let row = try XCTUnwrap(textView.layout().visibleLines.first)
+        let click = LunaPointI(
+            x: row.textBounds.x + textView.metrics.glyphMetrics.advance * 2 + 1,
+            y: row.rowBounds.y + row.rowBounds.h / 2
+        )
+
+        _ = scene.handleHostEvent(
+            .pointer(LunaPointerEvent(phase: .down, location: click, clickCount: 2)),
+            framebufferSize: scene.framebufferSize
+        )
+        _ = scene.handleHostEvent(
+            .pointer(LunaPointerEvent(phase: .up, location: click, clickCount: 2)),
+            framebufferSize: scene.framebufferSize
+        )
+
+        XCTAssertEqual(scene.primaryView.selection?.anchor.rawValue, 0)
+        XCTAssertEqual(scene.primaryView.selection?.focus.rawValue, 6)
+
+        _ = scene.handleHostEvent(
+            .textInput(LunaTextInputEvent(text: "X")),
+            framebufferSize: scene.framebufferSize
+        )
+        XCTAssertEqual(scene.bufferSnapshot.text, "X world")
+        XCTAssertNil(scene.primaryView.selection)
+    }
+
+    func testTripleClickSelectsWholeLogicalLineIncludingNewline() throws {
+        var scene = MothApplicationShellScene(initialText: "one\ntwo")
+        let textView = try XCTUnwrap(
+            scene.paneTextView(for: MothApplicationShellScene.primaryPaneID)
+        )
+        let row = try XCTUnwrap(textView.layout().visibleLines.first)
+        let click = LunaPointI(
+            x: row.textBounds.x + textView.metrics.glyphMetrics.advance + 1,
+            y: row.rowBounds.y + row.rowBounds.h / 2
+        )
+
+        _ = scene.handleHostEvent(
+            .pointer(LunaPointerEvent(phase: .down, location: click, clickCount: 3)),
+            framebufferSize: scene.framebufferSize
+        )
+        _ = scene.handleHostEvent(
+            .pointer(LunaPointerEvent(phase: .up, location: click, clickCount: 3)),
+            framebufferSize: scene.framebufferSize
+        )
+
+        XCTAssertEqual(scene.primaryView.selection?.normalizedRange.start.rawValue, 0)
+        XCTAssertEqual(scene.primaryView.selection?.normalizedRange.end.rawValue, 4)
+    }
+
+    func testShiftClickExtendsFromExistingCaretAnchor() throws {
+        var scene = MothApplicationShellScene(initialText: "alpha beta")
+        let textView = try XCTUnwrap(
+            scene.paneTextView(for: MothApplicationShellScene.primaryPaneID)
+        )
+        let row = try XCTUnwrap(textView.layout().visibleLines.first)
+        func point(_ column: Int) -> LunaPointI {
+            LunaPointI(
+                x: row.textBounds.x + textView.metrics.glyphMetrics.advance * column + 1,
+                y: row.rowBounds.y + row.rowBounds.h / 2
+            )
+        }
+
+        _ = scene.handleHostEvent(
+            .pointer(LunaPointerEvent(phase: .down, location: point(2))),
+            framebufferSize: scene.framebufferSize
+        )
+        _ = scene.handleHostEvent(
+            .pointer(LunaPointerEvent(phase: .up, location: point(2))),
+            framebufferSize: scene.framebufferSize
+        )
+        _ = scene.handleHostEvent(
+            .pointer(LunaPointerEvent(
+                phase: .down,
+                location: point(8),
+                modifiers: LunaKeyboardModifiers(shift: true)
+            )),
+            framebufferSize: scene.framebufferSize
+        )
+
+        XCTAssertEqual(scene.primaryView.selection?.anchor.rawValue, 2)
+        XCTAssertEqual(scene.primaryView.selection?.focus.rawValue, 8)
+    }
+
+    func testEdgeAutoscrollAdvancesActivePaneAndRetainsSelectionCapture() throws {
+        var scene = MothApplicationShellScene(
+            initialText: (0..<80).map { "line \($0) selection target" }.joined(separator: "\n")
+        )
+        let textView = try XCTUnwrap(
+            scene.paneTextView(for: MothApplicationShellScene.primaryPaneID)
+        )
+        let layout = textView.layout()
+        let first = try XCTUnwrap(layout.visibleLines.first)
+        let start = LunaPointI(
+            x: first.textBounds.x + 1,
+            y: first.rowBounds.y + first.rowBounds.h / 2
+        )
+        let outside = LunaPointI(
+            x: layout.textViewportBounds.x + 20,
+            y: layout.textViewportBounds.y + layout.textViewportBounds.h + 60
+        )
+
+        _ = scene.handleHostEvent(
+            .pointer(LunaPointerEvent(phase: .down, location: start)),
+            framebufferSize: scene.framebufferSize
+        )
+        _ = scene.handleHostEvent(
+            .pointer(LunaPointerEvent(phase: .moved, location: outside, clickCount: 0)),
+            framebufferSize: scene.framebufferSize
+        )
+
+        XCTAssertTrue(scene.wantsPointerCapture)
+        XCTAssertTrue(scene.wantsContinuousRendering)
+        XCTAssertGreaterThan(scene.primaryView.viewport.firstVisibleVisualRow ?? 0, 0)
+        XCTAssertGreaterThan(scene.primaryView.selection?.normalizedRange.length ?? 0, 0)
+
+        _ = scene.handleHostEvent(
+            .pointerCaptureLost,
+            framebufferSize: scene.framebufferSize
+        )
+        XCTAssertFalse(scene.wantsPointerCapture)
+        XCTAssertFalse(scene.wantsContinuousRendering)
+    }
+
 }

@@ -47,7 +47,7 @@ Exit condition achieved:
 
 ## M2 — First file-backed Luna-rendered Moth application slice
 
-**Status: M2.2A plus Convergence C1A implemented and validated against the matching Luna C1A revision.**
+**Status: M2.2A plus Convergence C1A and C1B implemented and validated against the matching Luna C1B revision.**
 
 Delivered in M2.1:
 
@@ -78,13 +78,26 @@ Convergence C1A delivered:
 - reliable drag ownership and pointer capture through mouse-up;
 - shared Luna interaction state consumed directly by Moth.
 
-Convergence C1B remains:
+Convergence C1B delivered:
 
-- reusable click-drag text selection, Shift-click extension, word/line selection, and edge autoscroll.
+- reusable Luna text-selection gesture state consumed immediately by Moth;
+- click, Shift-click, click-drag, Unicode-aware word selection, and logical-line selection;
+- wrapped-row selection, drag-time pointer capture, safe capture-loss cancellation, and visual-row edge autoscroll;
+- independent pane-local caret, selection, and viewport state over the shared file document;
+- selection replacement/removal through existing Moth editor transactions;
+- regression coverage for Unicode boundaries, line/newline selection, pane independence, capture, and autoscroll.
 
-After C1B, M2.2B remains:
+Convergence C2 is next:
 
-- undo/redo transaction grouping;
+- document-owned inverse edits and undo/redo stacks;
+- deterministic transaction grouping and ordinary typing coalescence;
+- redo invalidation after a new edit;
+- initiating-view caret and selection restoration while other views resynchronize safely;
+- monotonic render revisions kept separate from history-state identity;
+- a saved-history checkpoint so undoing back to disk content returns the document to clean state.
+
+After C2, M2.2B continues with:
+
 - visible find/replace panel integration;
 - fuller command/menu routing and keyboard shortcuts;
 - external-change response and reload/conflict presentation;
@@ -94,6 +107,12 @@ M2.2A exit condition achieved:
 
 > Two Moth editor views can share one real file document while clipping, wrapping,
 > scrolling, focusing, and editing independently inside Luna-owned pane geometry.
+
+C1B exit condition achieved:
+
+> Both Moth panes support captured click/Shift-click/drag, Unicode word, logical-line,
+> wrapped-row, and edge-autoscroll selection while retaining independent view state
+> over one authoritative Moth document.
 
 ## M3 — Workspace fundamentals
 

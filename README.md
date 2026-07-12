@@ -147,12 +147,23 @@ Implemented against Luna Convergence C1A:
 - pointer capture while resizing, including motion outside the original divider/window bounds;
 - shared Luna pane interaction state instead of Moth-owned duplicate drag logic.
 
-### Next: Convergence C1B — Foundational mouse selection
+### Convergence C1B — Foundational mouse selection
 
-The next paired slice extracts LunaUITestApp's proven click-drag selection behavior
-into reusable Luna interaction state and consumes it immediately in both Moth panes.
-Undo/redo transaction grouping and command convergence follow after that mouse-input
-foundation is stable.
+Implemented against Luna Convergence C1B:
+
+- click places the caret through wrapped, UTF-8-safe Luna hit testing;
+- Shift-click extends from the active Moth view's existing selection anchor;
+- click-drag selection works across logical lines and wrapped continuation rows;
+- double-click selects Unicode-aware word, whitespace, or punctuation runs;
+- triple-click selects a complete logical line, including its newline when present;
+- captured drags continue outside the visible text area and cancel safely after focus/capture loss;
+- edge autoscroll advances the active pane by visual rows while preserving selection ownership;
+- each pane retains independent caret, selection, and viewport state over the shared document;
+- typing, Backspace, and Delete continue replacing/removing the selected Moth range through existing editor transactions.
+
+### Next: Convergence C2 — Document-owned undo/redo
+
+The next paired slice adds inverse edits, deterministic transaction grouping, redo invalidation, initiating-view caret/selection restoration, and a saved-history checkpoint so undoing back to disk content becomes clean without reusing stale buffer revisions. Luna remains stable unless C2 exposes a genuinely reusable presentation seam.
 
 See:
 
@@ -227,4 +238,4 @@ pane leaves to independent Moth editor views over one file document. Each pane
 clips and soft-wraps against its own width, divider movement reflows both views,
 and pointer/keyboard editing follows the active pane. Open, Save, Save As, UTF-8
 BOM preservation, and dirty-close protection remain intact. Visible find UI and
-native cursor/divider interaction is complete in C1A. Reusable click-drag and richer text selection arrive in C1B before undo/redo and command convergence.
+native cursor/divider interaction is complete in C1A, and reusable mouse selection is integrated in C1B. Document-owned undo/redo and correct saved-state tracking are next in C2 before command/find/menu convergence.
