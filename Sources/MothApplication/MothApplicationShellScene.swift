@@ -2,15 +2,14 @@
 //
 // MothApplicationShellScene.swift
 //
-// First Luna-rendered Moth editor slice backed by a real Moth-owned source
-// buffer. The scene remains platform-neutral: Luna owns the native host and
-// normalized input stream, while Moth owns text, transactions, revisions,
-// dirty-state policy, and independent editor views.
+// Luna-rendered Moth editor slice backed by one real Moth-owned file document.
+// Luna owns pane geometry, wrapping, clipping, hit testing, and platform input.
+// Moth owns the document, transactions, dirty state, and independent view state.
 
+import Foundation
 import LunaCore
 import LunaHostCore
 import LunaInput
-import Foundation
 import LunaRender
 import LunaUI
 import MothEditor
@@ -18,17 +17,23 @@ import MothTextCore
 import MothWorkspace
 
 public struct MothApplicationShellScene {
+    static let primaryPaneID = LunaPaneID(rawValue: "moth.primary")
+    static let secondaryPaneID = LunaPaneID(rawValue: "moth.secondary")
+    static let mainSplitID = LunaSplitID(rawValue: "moth.main-split")
+
     public private(set) var framebufferSize: LunaSizeI
     public private(set) var pointerAccentIsActive: Bool
     public private(set) var keyboardEventCount: UInt64
     public private(set) var document: MothFileDocument
     public private(set) var primaryView: MothEditorViewState
     public private(set) var secondaryView: MothEditorViewState
+    public private(set) var paneWorkspace: LunaPaneWorkspaceState
     public private(set) var statusMessage: String
 
     private var documentController: MothDocumentController<MothLocalDocumentFileAccess>
     private var dialogService: any LunaDialogService
     private var suppressedTextInput: String?
+    private var draggedSplitID: LunaSplitID?
 
     public init(
         initialSize: LunaSizeI = LunaSizeI(width: 1100, height: 720),
@@ -57,9 +62,23 @@ public struct MothApplicationShellScene {
         self.documentController = MothDocumentController(fileAccess: MothLocalDocumentFileAccess())
         self.dialogService = dialogService
         self.suppressedTextInput = nil
+        self.draggedSplitID = nil
         self.statusMessage = document.snapshot().isUntitled
             ? "Untitled document — Ctrl+Shift+S to Save As"
             : "Opened \(document.snapshot().displayPath)"
+
+        self.paneWorkspace = LunaPaneWorkspaceState(
+            root: .split(
+                id: Self.mainSplitID,
+                axis: .horizontal,
+                fraction: 0.58,
+                first: .pane(Self.primaryPaneID),
+                second: .pane(Self.secondaryPaneID)
+            ),
+            activePaneID: Self.primaryPaneID,
+            minimumSplitFraction: 0.2,
+            maximumSplitFraction: 0.8
+        )
 
         let buffer = document.buffer
         self.primaryView = MothEditorViewState(
@@ -111,8 +130,6 @@ public struct MothApplicationShellScene {
         try documentController.hasExternalChange(document)
     }
 
-    /// Resolve dirty-document policy before the native host terminates.
-    /// Returning false leaves the application running.
     public mutating func requestApplicationTermination() -> Bool {
         prepareToReplaceOrCloseCurrentDocument(source: "window.close")
     }
@@ -128,14 +145,11 @@ public struct MothApplicationShellScene {
             return LunaFrameInvalidationSet()
 
         case .windowResized:
+            resetWrappedScrollAnchors()
             return LunaFrameInvalidationSet(.windowResized)
 
         case .pointer(let pointer):
-            guard pointer.phase == .down else {
-                return LunaFrameInvalidationSet(.input)
-            }
-            pointerAccentIsActive.toggle()
-            moveCaret(to: pointer.location, extendingSelection: pointer.modifiers.shift)
+            handlePointer(pointer)
             return LunaFrameInvalidationSet(.input)
 
         case .keyboard(let keyboard):
@@ -150,8 +164,12 @@ public struct MothApplicationShellScene {
                 return LunaFrameInvalidationSet(.input)
             }
             suppressedTextInput = nil
-            _ = MothEditorTransactions.insert(textInput.text, in: buffer, view: &primaryView)
+            let sourceBuffer = buffer
+            mutateActiveView { view in
+                _ = MothEditorTransactions.insert(textInput.text, in: sourceBuffer, view: &view)
+            }
             synchronizeViewsAfterSharedEdit()
+            ensureActiveCaretVisible()
             return LunaFrameInvalidationSet(.textInput)
         }
     }
@@ -159,72 +177,162 @@ public struct MothApplicationShellScene {
     public mutating func render(into framebuffer: inout LunaFramebuffer) {
         let width = framebuffer.width
         let height = framebuffer.height
-
         let palette = MothApplicationTheme.renderPalette
-        let background = palette.windowBackground
-        let chrome = palette.chromeBackground
-        let raised = palette.raisedBackground
-        let editor = palette.editorBackground
-        let separator = palette.separator
-        let text = palette.text
-        let mutedText = palette.mutedText
-        let accent = pointerAccentIsActive ? palette.accentStrong : palette.accent
-        let minimapBackground = palette.minimapBackground
 
-        framebuffer.clear(background)
+        framebuffer.clear(palette.windowBackground)
 
         let statusHeight = 24
         let sidebarWidth = min(260, max(150, width / 4))
         let minimapWidth = min(110, max(60, width / 10))
         let contentTop = 68
         let contentHeight = max(1, height - contentTop - statusHeight)
-        let editorBounds = LunaRectI(
+        let paneBounds = LunaRectI(
             x: sidebarWidth + 1,
             y: contentTop,
             w: max(1, width - sidebarWidth - minimapWidth - 2),
             h: contentHeight
         )
 
-        framebuffer.fillRect(LunaRectI(x: 0, y: 0, w: width, h: 30), color: chrome)
-        framebuffer.fillRect(LunaRectI(x: 0, y: 30, w: width, h: 38), color: raised)
-        framebuffer.fillRect(LunaRectI(x: 0, y: contentTop, w: sidebarWidth, h: contentHeight), color: chrome)
-        framebuffer.fillRect(editorBounds, color: editor)
+        framebuffer.fillRect(LunaRectI(x: 0, y: 0, w: width, h: 30), color: palette.chromeBackground)
+        framebuffer.fillRect(LunaRectI(x: 0, y: 30, w: width, h: 38), color: palette.raisedBackground)
+        framebuffer.fillRect(LunaRectI(x: 0, y: contentTop, w: sidebarWidth, h: contentHeight), color: palette.chromeBackground)
         framebuffer.fillRect(
             LunaRectI(x: max(sidebarWidth + 1, width - minimapWidth), y: contentTop, w: minimapWidth, h: contentHeight),
-            color: minimapBackground
+            color: palette.minimapBackground
         )
         framebuffer.fillRect(
             LunaRectI(x: 0, y: max(0, height - statusHeight), w: width, h: statusHeight),
-            color: raised
+            color: palette.raisedBackground
         )
-        framebuffer.fillRect(LunaRectI(x: sidebarWidth, y: contentTop, w: 1, h: contentHeight), color: separator)
-        framebuffer.fillRect(LunaRectI(x: 0, y: contentTop - 1, w: width, h: 1), color: separator)
-        framebuffer.fillRect(LunaRectI(x: 10, y: 63, w: min(180, max(40, width / 5)), h: 3), color: accent)
+        framebuffer.fillRect(LunaRectI(x: sidebarWidth, y: contentTop, w: 1, h: contentHeight), color: palette.separator)
+        framebuffer.fillRect(LunaRectI(x: 0, y: contentTop - 1, w: width, h: 1), color: palette.separator)
+        framebuffer.fillRect(LunaRectI(x: 10, y: 63, w: min(180, max(40, width / 5)), h: 3), color: activeAccent)
 
-        drawChromeText(
-            framebuffer: &framebuffer,
-            textColor: text,
-            mutedText: mutedText,
-            accent: accent,
-            statusHeight: statusHeight
-        )
-        drawSidebar(framebuffer: &framebuffer, sidebarWidth: sidebarWidth, accent: accent, text: text, muted: mutedText)
-        drawEditor(
-            framebuffer: &framebuffer,
-            bounds: editorBounds,
-            textColor: text,
-            mutedText: mutedText,
-            accent: accent
-        )
+        drawChromeText(framebuffer: &framebuffer, statusHeight: statusHeight)
+        drawSidebar(framebuffer: &framebuffer, sidebarWidth: sidebarWidth)
+        drawPaneEditors(framebuffer: &framebuffer, bounds: paneBounds)
         drawMinimap(
             framebuffer: &framebuffer,
             left: max(sidebarWidth + 1, width - minimapWidth),
             top: contentTop,
             width: minimapWidth,
             height: contentHeight,
-            accent: accent
+            accent: activeAccent
         )
     }
+
+    // MARK: - Pane integration
+
+    var activePaneID: LunaPaneID { paneWorkspace.activePaneID }
+
+    func paneContainer(bounds: LunaRectI? = nil) -> LunaPaneContainer {
+        LunaPaneContainer(
+            id: LunaNodeID(rawValue: "moth.editor.panes"),
+            bounds: bounds ?? paneEditorBounds(),
+            state: paneWorkspace,
+            theme: MothApplicationTheme.theme,
+            metrics: LunaPaneContainerMetrics(
+                dividerThickness: 5,
+                minimumPaneExtent: 120,
+                activePaneBorderThickness: 2
+            )
+        )
+    }
+
+    func paneLayout(bounds: LunaRectI? = nil) -> LunaPaneContainerLayout {
+        paneContainer(bounds: bounds).layout()
+    }
+
+    func paneContentFrame(for paneID: LunaPaneID) -> LunaPaneContentFrame? {
+        paneLayout().contentFrame(for: paneID, metrics: .editor)
+    }
+
+    func paneTextView(for paneID: LunaPaneID) -> LunaStaticTextView? {
+        guard let frame = paneContentFrame(for: paneID) else { return nil }
+        return makePaneSurface(paneID: paneID, contentFrame: frame).textView
+    }
+
+    private func paneEditorBounds() -> LunaRectI {
+        let width = framebufferSize.width
+        let height = framebufferSize.height
+        let sidebarWidth = min(260, max(150, width / 4))
+        let minimapWidth = min(110, max(60, width / 10))
+        let contentTop = 68
+        let statusHeight = 24
+        return LunaRectI(
+            x: sidebarWidth + 1,
+            y: contentTop,
+            w: max(1, width - sidebarWidth - minimapWidth - 2),
+            h: max(1, height - contentTop - statusHeight)
+        )
+    }
+
+    private func makePaneSurface(
+        paneID: LunaPaneID,
+        contentFrame: LunaPaneContentFrame
+    ) -> MothPaneEditorSurface {
+        MothPaneEditorSurface(
+            paneID: paneID,
+            contentFrame: contentFrame,
+            viewState: viewState(for: paneID),
+            snapshot: lunaSnapshot(),
+            isActive: paneID == paneWorkspace.activePaneID
+        )
+    }
+
+    private mutating func handlePointer(_ event: LunaPointerEvent) {
+        if event.phase == .down { pointerAccentIsActive.toggle() }
+
+        let container = paneContainer()
+        let layout = container.layout()
+
+        if event.phase == .down,
+           let divider = layout.dividerFrames.first(where: { $0.bounds.contains(x: event.location.x, y: event.location.y) }) {
+            draggedSplitID = divider.splitID
+            _ = paneWorkspace.setSplitFraction(divider.fraction(for: event.location), for: divider.splitID)
+            resetWrappedScrollAnchors()
+            return
+        }
+
+        if event.phase == .moved,
+           let splitID = draggedSplitID,
+           let divider = layout.dividerFrame(for: splitID) {
+            _ = paneWorkspace.setSplitFraction(divider.fraction(for: event.location), for: splitID)
+            resetWrappedScrollAnchors()
+            return
+        }
+
+        if event.phase == .up {
+            draggedSplitID = nil
+            return
+        }
+
+        guard event.phase == .down,
+              let pane = layout.paneFrames.first(where: { $0.bounds.contains(x: event.location.x, y: event.location.y) }) else {
+            return
+        }
+
+        _ = paneWorkspace.activate(pane.paneID)
+        guard let contentFrame = layout.contentFrame(for: pane.paneID, metrics: .editor),
+              contentFrame.contentBounds.contains(x: event.location.x, y: event.location.y) else {
+            return
+        }
+
+        let surface = makePaneSurface(paneID: pane.paneID, contentFrame: contentFrame)
+        guard let hit = surface.textView.textHitTest(event.location) else { return }
+        let offset = surface.textView.document.absoluteUTF8Offset(for: hit.location)
+        mutateView(for: pane.paneID) { view in
+            view.setCaret(MothTextOffset(rawValue: offset), extendingSelection: event.modifiers.shift)
+            view.preferredUTF8Column = hit.location.utf8Column
+        }
+    }
+
+    private mutating func resetWrappedScrollAnchors() {
+        primaryView.viewport.firstVisibleVisualRow = nil
+        secondaryView.viewport.firstVisibleVisualRow = nil
+    }
+
+    // MARK: - Editing and commands
 
     private mutating func handleKeyboard(_ event: LunaKeyboardEvent) {
         if handleApplicationShortcut(event) { return }
@@ -232,52 +340,62 @@ public struct MothApplicationShellScene {
 
         switch event.key {
         case .backspace:
-            _ = MothEditorTransactions.deleteBackward(in: buffer, view: &primaryView)
+            let sourceBuffer = buffer
+            mutateActiveView { view in
+                _ = MothEditorTransactions.deleteBackward(in: sourceBuffer, view: &view)
+            }
             synchronizeViewsAfterSharedEdit()
+            ensureActiveCaretVisible()
 
         case .delete:
-            _ = MothEditorTransactions.deleteForward(in: buffer, view: &primaryView)
+            let sourceBuffer = buffer
+            mutateActiveView { view in
+                _ = MothEditorTransactions.deleteForward(in: sourceBuffer, view: &view)
+            }
             synchronizeViewsAfterSharedEdit()
+            ensureActiveCaretVisible()
 
         case .enter:
-            _ = MothEditorTransactions.insert("\n", in: buffer, view: &primaryView)
+            let sourceBuffer = buffer
+            mutateActiveView { view in
+                _ = MothEditorTransactions.insert("\n", in: sourceBuffer, view: &view)
+            }
             synchronizeViewsAfterSharedEdit()
+            ensureActiveCaretVisible()
 
         case .arrowLeft:
-            let next = MothTextOffset(rawValue: max(0, primaryView.caret.rawValue - 1))
-            primaryView.setCaret(next, extendingSelection: event.modifiers.shift)
-            _ = primaryView.synchronize(with: snapshot)
+            mutateActiveView { view in
+                let next = MothTextOffset(rawValue: max(0, view.caret.rawValue - 1))
+                view.setCaret(next, extendingSelection: event.modifiers.shift)
+                _ = view.synchronize(with: snapshot)
+            }
+            ensureActiveCaretVisible()
 
         case .arrowRight:
-            let next = MothTextOffset(rawValue: min(snapshot.utf8Count, primaryView.caret.rawValue + 1))
-            primaryView.setCaret(next, extendingSelection: event.modifiers.shift)
-            _ = primaryView.synchronize(with: snapshot)
+            mutateActiveView { view in
+                let next = MothTextOffset(rawValue: min(snapshot.utf8Count, view.caret.rawValue + 1))
+                view.setCaret(next, extendingSelection: event.modifiers.shift)
+                _ = view.synchronize(with: snapshot)
+            }
+            ensureActiveCaretVisible()
 
         case .home:
-            let document = lunaSnapshot().staticDocument
-            let location = document.location(forAbsoluteUTF8Offset: primaryView.caret.rawValue)
-            let next = MothTextOffset(rawValue: document.absoluteUTF8Offset(for: LunaTextLocation(lineIndex: location.lineIndex, utf8Column: 0)))
-            primaryView.setCaret(next, extendingSelection: event.modifiers.shift)
+            moveActiveCaretToLineBoundary(end: false, extendingSelection: event.modifiers.shift)
 
         case .end:
-            let document = lunaSnapshot().staticDocument
-            let location = document.location(forAbsoluteUTF8Offset: primaryView.caret.rawValue)
-            let lineLength = document[line: location.lineIndex]?.utf8Length ?? 0
-            let next = MothTextOffset(rawValue: document.absoluteUTF8Offset(for: LunaTextLocation(lineIndex: location.lineIndex, utf8Column: lineLength)))
-            primaryView.setCaret(next, extendingSelection: event.modifiers.shift)
+            moveActiveCaretToLineBoundary(end: true, extendingSelection: event.modifiers.shift)
 
         case .arrowUp:
-            moveCaretVertically(by: -1, extendingSelection: event.modifiers.shift)
+            moveActiveCaretVertically(by: -1, extendingSelection: event.modifiers.shift)
 
         case .arrowDown:
-            moveCaretVertically(by: 1, extendingSelection: event.modifiers.shift)
+            moveActiveCaretVertically(by: 1, extendingSelection: event.modifiers.shift)
 
         case .pageUp:
-            primaryView.viewport.firstVisibleLine = max(0, primaryView.viewport.firstVisibleLine - 12)
+            scrollActivePane(byVisualRows: -12)
 
         case .pageDown:
-            let lineCount = lunaSnapshot().staticDocument.lineCount
-            primaryView.viewport.firstVisibleLine = min(max(0, lineCount - 1), primaryView.viewport.firstVisibleLine + 12)
+            scrollActivePane(byVisualRows: 12)
 
         default:
             break
@@ -286,6 +404,12 @@ public struct MothApplicationShellScene {
 
     private mutating func handleApplicationShortcut(_ event: LunaKeyboardEvent) -> Bool {
         guard event.modifiers.control || event.modifiers.command else { return false }
+
+        if event.key == .tab {
+            _ = paneWorkspace.traverse(event.modifiers.shift ? .previous : .next, layout: paneLayout())
+            return true
+        }
+
         guard case .other(let rawKey) = event.key else { return false }
         let key = rawKey.lowercased()
 
@@ -312,6 +436,87 @@ public struct MothApplicationShellScene {
             return false
         }
     }
+
+    private mutating func moveActiveCaretToLineBoundary(end: Bool, extendingSelection: Bool) {
+        let document = lunaSnapshot().staticDocument
+        let view = activeViewState
+        let location = document.location(forAbsoluteUTF8Offset: view.caret.rawValue)
+        let column = end ? (document[line: location.lineIndex]?.utf8Length ?? 0) : 0
+        let offset = document.absoluteUTF8Offset(
+            for: LunaTextLocation(lineIndex: location.lineIndex, utf8Column: column)
+        )
+        mutateActiveView { view in
+            view.setCaret(MothTextOffset(rawValue: offset), extendingSelection: extendingSelection)
+            view.preferredUTF8Column = column
+        }
+        ensureActiveCaretVisible()
+    }
+
+    private mutating func moveActiveCaretVertically(by delta: Int, extendingSelection: Bool) {
+        let document = lunaSnapshot().staticDocument
+        let view = activeViewState
+        let current = document.location(forAbsoluteUTF8Offset: view.caret.rawValue)
+        let preferred = view.preferredUTF8Column ?? current.utf8Column
+        let targetLine = min(max(0, current.lineIndex + delta), max(0, document.lineCount - 1))
+        let targetColumn = min(preferred, document[line: targetLine]?.utf8Length ?? 0)
+        let target = document.absoluteUTF8Offset(
+            for: LunaTextLocation(lineIndex: targetLine, utf8Column: targetColumn)
+        )
+        mutateActiveView { view in
+            view.setCaret(MothTextOffset(rawValue: target), extendingSelection: extendingSelection)
+            view.preferredUTF8Column = preferred
+        }
+        ensureActiveCaretVisible()
+    }
+
+    private mutating func scrollActivePane(byVisualRows delta: Int) {
+        let paneID = paneWorkspace.activePaneID
+        guard let textView = paneTextView(for: paneID) else { return }
+        let scrolled = textView.scrolled(byLineDelta: delta)
+        let layout = scrolled.layout()
+        mutateView(for: paneID) { view in
+            view.viewport.firstVisibleLine = layout.firstVisibleLineIndex
+            view.viewport.firstVisibleVisualRow = layout.firstVisibleVisualRowIndex
+        }
+    }
+
+    private mutating func ensureActiveCaretVisible() {
+        let paneID = paneWorkspace.activePaneID
+        guard let textView = paneTextView(for: paneID) else { return }
+        let document = textView.document
+        let location = document.location(forAbsoluteUTF8Offset: activeViewState.caret.rawValue)
+        let ensured = textView.ensuringVisible(location)
+        let layout = ensured.layout()
+        mutateView(for: paneID) { view in
+            view.viewport.firstVisibleLine = layout.firstVisibleLineIndex
+            view.viewport.firstVisibleVisualRow = layout.firstVisibleVisualRowIndex
+        }
+    }
+
+    private var activeViewState: MothEditorViewState {
+        viewState(for: paneWorkspace.activePaneID)
+    }
+
+    private func viewState(for paneID: LunaPaneID) -> MothEditorViewState {
+        paneID == Self.secondaryPaneID ? secondaryView : primaryView
+    }
+
+    private mutating func mutateActiveView(_ body: (inout MothEditorViewState) -> Void) {
+        mutateView(for: paneWorkspace.activePaneID, body)
+    }
+
+    private mutating func mutateView(
+        for paneID: LunaPaneID,
+        _ body: (inout MothEditorViewState) -> Void
+    ) {
+        if paneID == Self.secondaryPaneID {
+            body(&secondaryView)
+        } else {
+            body(&primaryView)
+        }
+    }
+
+    // MARK: - File workflow
 
     private mutating func requestOpenDocument() {
         let current = document.snapshot()
@@ -385,15 +590,11 @@ public struct MothApplicationShellScene {
         case .discard:
             statusMessage = result.statusMessage ?? "Discarding unsaved changes"
             return true
-
         case .cancel:
             statusMessage = result.statusMessage ?? "Close cancelled"
             return false
-
         case .save:
-            if snapshot.isUntitled {
-                return requestSaveDocumentAs()
-            }
+            if snapshot.isUntitled { return requestSaveDocumentAs() }
             do {
                 _ = try saveDocument()
                 return true
@@ -402,51 +603,6 @@ public struct MothApplicationShellScene {
                 return false
             }
         }
-    }
-
-    private mutating func moveCaretVertically(by delta: Int, extendingSelection: Bool) {
-        let document = lunaSnapshot().staticDocument
-        let current = document.location(forAbsoluteUTF8Offset: primaryView.caret.rawValue)
-        let preferred = primaryView.preferredUTF8Column ?? current.utf8Column
-        let targetLine = min(max(0, current.lineIndex + delta), max(0, document.lineCount - 1))
-        let targetColumn = min(preferred, document[line: targetLine]?.utf8Length ?? 0)
-        let target = document.absoluteUTF8Offset(for: LunaTextLocation(lineIndex: targetLine, utf8Column: targetColumn))
-        primaryView.setCaret(MothTextOffset(rawValue: target), extendingSelection: extendingSelection)
-        primaryView.preferredUTF8Column = preferred
-
-        let visibleRows = max(1, (framebufferSize.height - 68 - 24 - 20) / 18)
-        if targetLine < primaryView.viewport.firstVisibleLine {
-            primaryView.viewport.firstVisibleLine = targetLine
-        } else if targetLine >= primaryView.viewport.firstVisibleLine + visibleRows {
-            primaryView.viewport.firstVisibleLine = max(0, targetLine - visibleRows + 1)
-        }
-    }
-
-    private mutating func moveCaret(to point: LunaPointI, extendingSelection: Bool) {
-        let width = framebufferSize.width
-        let height = framebufferSize.height
-        let sidebarWidth = min(260, max(150, width / 4))
-        let minimapWidth = min(110, max(60, width / 10))
-        let contentTop = 68
-        let statusHeight = 24
-        let editorBounds = LunaRectI(
-            x: sidebarWidth + 1,
-            y: contentTop,
-            w: max(1, width - sidebarWidth - minimapWidth - 2),
-            h: max(1, height - contentTop - statusHeight)
-        )
-        guard editorBounds.contains(x: point.x, y: point.y) else { return }
-
-        let document = lunaSnapshot().staticDocument
-        let rowHeight = 18
-        let gutterWidth = 48
-        let line = primaryView.viewport.firstVisibleLine + max(0, (point.y - editorBounds.y - 10) / rowHeight)
-        let clampedLine = min(max(0, line), max(0, document.lineCount - 1))
-        let column = max(0, (point.x - editorBounds.x - gutterWidth - 10) / LunaDebugBitmapTextRenderer.advance)
-        let clampedColumn = min(column, document[line: clampedLine]?.utf8Length ?? 0)
-        let offset = document.absoluteUTF8Offset(for: LunaTextLocation(lineIndex: clampedLine, utf8Column: clampedColumn))
-        primaryView.setCaret(MothTextOffset(rawValue: offset), extendingSelection: extendingSelection)
-        primaryView.preferredUTF8Column = clampedColumn
     }
 
     private mutating func install(document: MothFileDocument) {
@@ -461,8 +617,14 @@ public struct MothApplicationShellScene {
             bufferID: document.buffer.id,
             caret: MothTextOffset(rawValue: snapshot.utf8Count),
             preferredUTF8Column: 12,
-            viewport: MothEditorViewportState(firstVisibleLine: min(2, max(0, snapshot.text.split(separator: "\n", omittingEmptySubsequences: false).count - 1)))
+            viewport: MothEditorViewportState(
+                firstVisibleLine: min(
+                    2,
+                    max(0, snapshot.text.split(separator: "\n", omittingEmptySubsequences: false).count - 1)
+                )
+            )
         )
+        paneWorkspace.activePaneID = Self.primaryPaneID
         synchronizeViewsAfterDocumentInstall()
     }
 
@@ -482,27 +644,39 @@ public struct MothApplicationShellScene {
         MothLunaTextStorageAdapter(buffer: buffer).textSnapshot()
     }
 
+    // MARK: - Drawing
+
+    private var activeAccent: LunaRender.LunaRGBA8 {
+        let palette = MothApplicationTheme.renderPalette
+        return pointerAccentIsActive ? palette.accentStrong : palette.accent
+    }
+
     private func drawChromeText(
         framebuffer: inout LunaFramebuffer,
-        textColor: LunaRender.LunaRGBA8,
-        mutedText: LunaRender.LunaRGBA8,
-        accent: LunaRender.LunaRGBA8,
         statusHeight: Int
     ) {
-        LunaDebugBitmapTextRenderer.draw("MOTH TEXT", atX: 12, y: 10, color: textColor, into: &framebuffer)
-        LunaDebugBitmapTextRenderer.draw("File  Edit  Selection  Find  View  Goto  Tools", atX: 105, y: 10, color: mutedText, into: &framebuffer)
+        let palette = MothApplicationTheme.renderPalette
+        LunaDebugBitmapTextRenderer.draw("MOTH TEXT", atX: 12, y: 10, color: palette.text, into: &framebuffer)
+        LunaDebugBitmapTextRenderer.draw(
+            "File  Edit  Selection  Find  View  Goto  Tools",
+            atX: 105,
+            y: 10,
+            color: palette.mutedText,
+            into: &framebuffer
+        )
         let documentSnapshot = document.snapshot()
         let tabTitle = documentSnapshot.isDirty ? "• \(documentSnapshot.displayName)" : documentSnapshot.displayName
-        LunaDebugBitmapTextRenderer.draw(tabTitle, atX: 18, y: 45, color: textColor, into: &framebuffer)
+        LunaDebugBitmapTextRenderer.draw(tabTitle, atX: 18, y: 45, color: palette.text, into: &framebuffer)
 
         let snapshot = documentSnapshot.buffer
         let dirty = snapshot.isDirty ? "MODIFIED" : "SAVED"
-        let status = "\(documentSnapshot.encoding.displayName)   REV \(snapshot.revision.rawValue)   \(dirty)   \(statusMessage)"
+        let pane = paneWorkspace.activePaneID == Self.primaryPaneID ? "PRIMARY" : "SECONDARY"
+        let status = "\(documentSnapshot.encoding.displayName)   REV \(snapshot.revision.rawValue)   \(dirty)   \(pane)   \(statusMessage)"
         LunaDebugBitmapTextRenderer.draw(
             status,
             atX: 12,
             y: max(0, framebuffer.height - statusHeight + 8),
-            color: snapshot.isDirty ? accent : mutedText,
+            color: snapshot.isDirty ? activeAccent : palette.mutedText,
             maximumWidth: max(0, framebuffer.width - 24),
             into: &framebuffer
         )
@@ -510,88 +684,67 @@ public struct MothApplicationShellScene {
 
     private func drawSidebar(
         framebuffer: inout LunaFramebuffer,
-        sidebarWidth: Int,
-        accent: LunaRender.LunaRGBA8,
-        text: LunaRender.LunaRGBA8,
-        muted: LunaRender.LunaRGBA8
+        sidebarWidth: Int
     ) {
-        LunaDebugBitmapTextRenderer.draw("OPEN FILES", atX: 16, y: 86, color: muted, into: &framebuffer)
+        let palette = MothApplicationTheme.renderPalette
+        LunaDebugBitmapTextRenderer.draw("OPEN FILES", atX: 16, y: 86, color: palette.mutedText, into: &framebuffer)
         let snapshot = document.snapshot()
-        LunaDebugBitmapTextRenderer.draw(snapshot.displayName, atX: 28, y: 108, color: accent, maximumWidth: sidebarWidth - 38, into: &framebuffer)
-        LunaDebugBitmapTextRenderer.draw("DOCUMENT", atX: 16, y: 142, color: muted, into: &framebuffer)
-        LunaDebugBitmapTextRenderer.draw(snapshot.isUntitled ? "UNTITLED" : "FILE-BACKED", atX: 28, y: 164, color: text, into: &framebuffer)
-        LunaDebugBitmapTextRenderer.draw(snapshot.encoding.displayName, atX: 40, y: 184, color: muted, maximumWidth: sidebarWidth - 50, into: &framebuffer)
-        LunaDebugBitmapTextRenderer.draw(snapshot.displayPath, atX: 40, y: 204, color: muted, maximumWidth: sidebarWidth - 50, into: &framebuffer)
-        LunaDebugBitmapTextRenderer.draw("Ctrl+O Open   Ctrl+S Save", atX: 28, y: 236, color: muted, maximumWidth: sidebarWidth - 38, into: &framebuffer)
+        LunaDebugBitmapTextRenderer.draw(snapshot.displayName, atX: 28, y: 108, color: activeAccent, maximumWidth: sidebarWidth - 38, into: &framebuffer)
+        LunaDebugBitmapTextRenderer.draw("DOCUMENT", atX: 16, y: 142, color: palette.mutedText, into: &framebuffer)
+        LunaDebugBitmapTextRenderer.draw(snapshot.isUntitled ? "UNTITLED" : "FILE-BACKED", atX: 28, y: 164, color: palette.text, into: &framebuffer)
+        LunaDebugBitmapTextRenderer.draw(snapshot.encoding.displayName, atX: 40, y: 184, color: palette.mutedText, maximumWidth: sidebarWidth - 50, into: &framebuffer)
+        LunaDebugBitmapTextRenderer.draw(snapshot.displayPath, atX: 40, y: 204, color: palette.mutedText, maximumWidth: sidebarWidth - 50, into: &framebuffer)
+        LunaDebugBitmapTextRenderer.draw("Ctrl+O Open   Ctrl+S Save", atX: 28, y: 236, color: palette.mutedText, maximumWidth: sidebarWidth - 38, into: &framebuffer)
+        LunaDebugBitmapTextRenderer.draw("Ctrl+Tab switches panes", atX: 28, y: 256, color: palette.mutedText, maximumWidth: sidebarWidth - 38, into: &framebuffer)
     }
 
-    private func drawEditor(
+    private func drawPaneEditors(
         framebuffer: inout LunaFramebuffer,
-        bounds: LunaRectI,
-        textColor: LunaRender.LunaRGBA8,
-        mutedText: LunaRender.LunaRGBA8,
-        accent: LunaRender.LunaRGBA8
+        bounds: LunaRectI
     ) {
-        let snapshot = lunaSnapshot()
-        let document = snapshot.staticDocument
-        let rowHeight = 18
-        let gutterWidth = 48
-        let firstLine = min(primaryView.viewport.firstVisibleLine, max(0, document.lineCount - 1))
-        let maxRows = max(0, (bounds.h - 20) / rowHeight)
-        let textX = bounds.x + gutterWidth + 10
-        let maximumTextWidth = max(0, bounds.w - gutterWidth - 20)
+        let palette = MothApplicationTheme.renderPalette
+        let container = paneContainer(bounds: bounds)
+        let layout = container.layout()
+        let frames = layout.contentFrames(metrics: .editor)
 
-        if let selection = primaryView.selection, !selection.isCollapsed {
-            let range = selection.normalizedRange
-            let start = document.location(forAbsoluteUTF8Offset: range.start.rawValue)
-            let end = document.location(forAbsoluteUTF8Offset: range.end.rawValue)
-            for lineIndex in start.lineIndex...end.lineIndex {
-                guard lineIndex >= firstLine, lineIndex < firstLine + maxRows else { continue }
-                let line = document[line: lineIndex]
-                let startColumn = lineIndex == start.lineIndex ? start.utf8Column : 0
-                let endColumn = lineIndex == end.lineIndex ? end.utf8Column : (line?.utf8Length ?? 0)
-                guard endColumn > startColumn else { continue }
-                let y = bounds.y + 10 + (lineIndex - firstLine) * rowHeight
-                framebuffer.fillRect(
-                    LunaRectI(
-                        x: textX + startColumn * LunaDebugBitmapTextRenderer.advance,
-                        y: y - 3,
-                        w: max(1, (endColumn - startColumn) * LunaDebugBitmapTextRenderer.advance),
-                        h: 12
-                    ),
-                    color: MothApplicationTheme.renderPalette.selection
-                )
-            }
-        }
-
-        for row in 0..<maxRows {
-            let lineIndex = firstLine + row
-            guard let line = document[line: lineIndex] else { break }
-            let y = bounds.y + 10 + row * rowHeight
+        for frame in frames {
+            framebuffer.fillRect(frame.headerBounds, color: palette.raisedBackground)
+            let active = frame.paneID == paneWorkspace.activePaneID
+            let title = frame.paneID == Self.primaryPaneID ? "PRIMARY VIEW" : "SECONDARY VIEW"
+            let view = viewState(for: frame.paneID)
+            let header = active ? "● \(title)" : "  \(title)"
             LunaDebugBitmapTextRenderer.draw(
-                String(line.lineNumber),
-                atX: bounds.x + 10,
-                y: y,
-                color: mutedText,
-                maximumWidth: gutterWidth - 14,
+                header,
+                atX: frame.headerBounds.x + 8,
+                y: frame.headerBounds.y + 7,
+                color: active ? activeAccent : palette.mutedText,
+                maximumWidth: max(0, frame.headerBounds.w - 16),
                 into: &framebuffer
             )
+            let scroll = view.viewport.firstVisibleVisualRow.map { "ROW \($0)" }
+                ?? "LINE \(view.viewport.firstVisibleLine + 1)"
             LunaDebugBitmapTextRenderer.draw(
-                line.text.replacingOccurrences(of: "\t", with: "    "),
-                atX: textX,
-                y: y,
-                color: textColor,
-                maximumWidth: maximumTextWidth,
+                scroll,
+                atX: max(frame.headerBounds.x + 8, frame.headerBounds.x + frame.headerBounds.w - 72),
+                y: frame.headerBounds.y + 7,
+                color: palette.mutedText,
+                maximumWidth: 64,
                 into: &framebuffer
             )
+            makePaneSurface(paneID: frame.paneID, contentFrame: frame).draw(into: &framebuffer)
         }
 
-        let caretLocation = document.location(forAbsoluteUTF8Offset: primaryView.caret.rawValue)
-        if caretLocation.lineIndex >= firstLine, caretLocation.lineIndex < firstLine + maxRows {
-            let row = caretLocation.lineIndex - firstLine
-            let caretX = textX + caretLocation.utf8Column * LunaDebugBitmapTextRenderer.advance
-            let caretY = bounds.y + 7 + row * rowHeight
-            framebuffer.fillRect(LunaRectI(x: caretX, y: caretY, w: 2, h: 12), color: accent)
+        for divider in layout.dividerFrames {
+            framebuffer.fillRect(divider.bounds, color: palette.separator)
+        }
+
+        if let active = layout.paneFrame(for: paneWorkspace.activePaneID) {
+            let b = active.bounds
+            let c = activeAccent
+            framebuffer.fillRect(LunaRectI(x: b.x, y: b.y, w: b.w, h: 2), color: c)
+            framebuffer.fillRect(LunaRectI(x: b.x, y: b.y + b.h - 2, w: b.w, h: 2), color: c)
+            framebuffer.fillRect(LunaRectI(x: b.x, y: b.y, w: 2, h: b.h), color: c)
+            framebuffer.fillRect(LunaRectI(x: b.x + b.w - 2, y: b.y, w: 2, h: b.h), color: c)
         }
     }
 
@@ -606,13 +759,14 @@ public struct MothApplicationShellScene {
         let document = lunaSnapshot().staticDocument
         let usableWidth = max(8, width - 20)
         let rows = min(document.lineCount, max(0, (height - 20) / 6))
+        let firstVisibleLine = activeViewState.viewport.firstVisibleLine
         for index in 0..<rows {
             guard let line = document[line: index] else { continue }
             let y = top + 10 + index * 6
-            let length = min(usableWidth, max(2, line.utf8Length * 2))
+            let length = min(usableWidth, max(2, line.text.count * 2))
             framebuffer.fillRect(
                 LunaRectI(x: left + 10, y: y, w: length, h: 2),
-                color: index == primaryView.viewport.firstVisibleLine
+                color: index == firstVisibleLine
                     ? accent
                     : LunaRender.LunaRGBA8(r: 55, g: 58, b: 68)
             )
@@ -620,8 +774,9 @@ public struct MothApplicationShellScene {
     }
 
     public static let demoText = """
-    // Moth Text M2.1
-    // File-backed documents now own URL, encoding, save state, and one shared buffer.
+    // Moth Text M2.2A
+    // Two pane-bound editor views share one file document while retaining
+    // independent caret, selection, wrapping, and viewport state.
 
     import MothTextCore
     import MothEditor
@@ -634,6 +789,6 @@ public struct MothApplicationShellScene {
     )
 
     MothEditorTransactions.insert("!", in: buffer, view: &primary)
-    // secondary observes the same revision without inheriting primary's caret.
+    // Resize the divider: each pane rewraps inside its own content bounds.
     """
 }

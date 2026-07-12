@@ -20,10 +20,21 @@ public struct MothTextSelection: Hashable, Sendable {
 /// View-local viewport state. This does not belong to the shared source buffer.
 public struct MothEditorViewportState: Hashable, Sendable {
     public var firstVisibleLine: Int
+
+    /// Optional wrapped visual-row position. A nil value anchors layout to the
+    /// logical firstVisibleLine, while a concrete value preserves continuation-
+    /// row scrolling inside a long soft-wrapped logical line.
+    public var firstVisibleVisualRow: Int?
+
     public var horizontalUTF8Column: Int
 
-    public init(firstVisibleLine: Int = 0, horizontalUTF8Column: Int = 0) {
+    public init(
+        firstVisibleLine: Int = 0,
+        firstVisibleVisualRow: Int? = nil,
+        horizontalUTF8Column: Int = 0
+    ) {
         self.firstVisibleLine = max(0, firstVisibleLine)
+        self.firstVisibleVisualRow = firstVisibleVisualRow.map { max(0, $0) }
         self.horizontalUTF8Column = max(0, horizontalUTF8Column)
     }
 }
@@ -59,6 +70,7 @@ public struct MothEditorViewState: Hashable, Sendable {
         self.viewport = firstVisibleLine.map {
             MothEditorViewportState(
                 firstVisibleLine: $0,
+                firstVisibleVisualRow: viewport.firstVisibleVisualRow,
                 horizontalUTF8Column: viewport.horizontalUTF8Column
             )
         } ?? viewport

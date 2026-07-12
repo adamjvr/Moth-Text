@@ -130,12 +130,14 @@ final class MothApplicationTests: XCTestCase {
         XCTAssertNotEqual(pixel(atX: 10, y: 10), pixel(atX: 400, y: 300))
         XCTAssertNotEqual(pixel(atX: 10, y: 100), pixel(atX: 400, y: 300))
 
-        // The first glyph begins in the real editor text region at x ~= 259 on
-        // an 800-pixel window. At least one pixel in its 5x7 cell must differ
-        // from the editor background.
+        // Sample the first primary-pane text row using the actual pane-bound
+        // content geometry rather than a hard-coded pre-split coordinate.
+        let content = try! XCTUnwrap(
+            scene.paneContentFrame(for: MothApplicationShellScene.primaryPaneID)
+        ).contentBounds
         var glyphPixels = Set<[UInt8]>()
-        for y in 78..<88 {
-            for x in 259..<270 {
+        for y in (content.y + 4)..<min(content.y + 16, 600) {
+            for x in (content.x + 52)..<min(content.x + 70, 800) {
                 glyphPixels.insert(pixel(atX: x, y: y))
             }
         }
@@ -250,6 +252,123 @@ final class MothApplicationTests: XCTestCase {
 
         XCTAssertFalse(scene.documentSnapshot.isDirty)
         XCTAssertEqual(try String(contentsOf: destination, encoding: .utf8), "!base")
+    }
+
+    func testPaneBoundTextViewsWrapIndependentlyAtTheirOwnWidths() throws {
+        let longLine = String(repeating: "pane bounded wrapping ", count: 30)
+        let scene = MothApplicationShellScene(
+            initialSize: LunaSizeI(width: 1100, height: 720),
+            initialText: longLine
+        )
+
+        let primary = try XCTUnwrap(
+            scene.paneTextView(for: MothApplicationShellScene.primaryPaneID)
+        ).layout()
+        let secondary = try XCTUnwrap(
+            scene.paneTextView(for: MothApplicationShellScene.secondaryPaneID)
+        ).layout()
+
+        XCTAssertGreaterThan(primary.totalVisualRowCount, 1)
+        XCTAssertGreaterThan(secondary.totalVisualRowCount, primary.totalVisualRowCount)
+        XCTAssertLessThan(
+            secondary.textViewportBounds.w,
+            primary.textViewportBounds.w
+        )
+    }
+
+    func testSecondaryPaneActivationRoutesEditingToSecondaryView() throws {
+        var scene = MothApplicationShellScene(initialText: "abc")
+        let primaryCaret = scene.primaryView.caret
+        let secondaryHeader = try XCTUnwrap(
+            scene.paneContentFrame(for: MothApplicationShellScene.secondaryPaneID)
+        ).headerBounds
+
+        _ = scene.handleHostEvent(
+            .pointer(LunaPointerEvent(
+                phase: .down,
+                location: LunaPointI(
+                    x: secondaryHeader.x + max(1, secondaryHeader.w / 2),
+                    y: secondaryHeader.y + max(1, secondaryHeader.h / 2)
+                ),
+                button: .primary
+            )),
+            framebufferSize: scene.framebufferSize
+        )
+        _ = scene.handleHostEvent(
+            .textInput(LunaTextInputEvent(text: "Z")),
+            framebufferSize: scene.framebufferSize
+        )
+
+        XCTAssertEqual(scene.activePaneID, MothApplicationShellScene.secondaryPaneID)
+        XCTAssertEqual(scene.primaryView.caret, primaryCaret)
+        XCTAssertEqual(scene.bufferSnapshot.text, "abcZ")
+        XCTAssertEqual(scene.secondaryView.caret.rawValue, 4)
+    }
+
+    func testDividerResizeChangesPaneWidthsAndRewrapsText() throws {
+        let longLine = String(repeating: "resize reflow ", count: 40)
+        var scene = MothApplicationShellScene(
+            initialSize: LunaSizeI(width: 1100, height: 720),
+            initialText: longLine
+        )
+        let beforeLayout = scene.paneLayout()
+        let beforePrimary = try XCTUnwrap(
+            scene.paneTextView(for: MothApplicationShellScene.primaryPaneID)
+        ).layout()
+        let divider = try XCTUnwrap(
+            beforeLayout.dividerFrame(for: MothApplicationShellScene.mainSplitID)
+        )
+        let targetX = beforeLayout.bounds.x + Int(Double(beforeLayout.bounds.w) * 0.72)
+        let y = divider.bounds.y + max(1, divider.bounds.h / 2)
+
+        _ = scene.handleHostEvent(
+            .pointer(LunaPointerEvent(
+                phase: .down,
+                location: LunaPointI(x: divider.bounds.x, y: y),
+                button: .primary
+            )),
+            framebufferSize: scene.framebufferSize
+        )
+        _ = scene.handleHostEvent(
+            .pointer(LunaPointerEvent(
+                phase: .moved,
+                location: LunaPointI(x: targetX, y: y),
+                button: .primary
+            )),
+            framebufferSize: scene.framebufferSize
+        )
+        _ = scene.handleHostEvent(
+            .pointer(LunaPointerEvent(
+                phase: .up,
+                location: LunaPointI(x: targetX, y: y),
+                button: .primary
+            )),
+            framebufferSize: scene.framebufferSize
+        )
+
+        let afterPrimary = try XCTUnwrap(
+            scene.paneTextView(for: MothApplicationShellScene.primaryPaneID)
+        ).layout()
+        XCTAssertGreaterThan(afterPrimary.textViewportBounds.w, beforePrimary.textViewportBounds.w)
+        XCTAssertLessThan(afterPrimary.totalVisualRowCount, beforePrimary.totalVisualRowCount)
+    }
+
+    func testControlTabMovesFocusWithoutMergingViewState() {
+        var scene = MothApplicationShellScene(initialText: "one\ntwo\nthree")
+        let primary = scene.primaryView
+        let secondary = scene.secondaryView
+
+        _ = scene.handleHostEvent(
+            .keyboard(LunaKeyboardEvent(
+                key: .tab,
+                modifiers: LunaKeyboardModifiers(control: true)
+            )),
+            framebufferSize: scene.framebufferSize
+        )
+
+        XCTAssertEqual(scene.activePaneID, MothApplicationShellScene.secondaryPaneID)
+        XCTAssertEqual(scene.primaryView, primary)
+        XCTAssertEqual(scene.secondaryView, secondary)
     }
 
 }

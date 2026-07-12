@@ -125,7 +125,18 @@ Implemented against Luna Phase 5F.1:
 - a Moth-owned application theme supplied through Luna's public theme product;
 - two independent editor views retained over the file document's one authoritative buffer.
 
-### Next: M2.2 — Editing command depth
+### M2.2A — Pane-bound editor-view integration
+
+Implemented against Luna Phase 5F.2A:
+
+- two real Luna pane leaves mapped to Moth's primary and secondary editor views;
+- one authoritative file document shared by both views;
+- independent caret, selection, logical-line, and wrapped visual-row viewport state;
+- width-correct soft wrapping and clipping inside each pane;
+- active-pane pointer/edit routing and Ctrl+Tab pane traversal;
+- divider resizing that immediately reflows both editor surfaces.
+
+### Next: M2.2B — Editing command depth
 
 The next product slice adds undo/redo transaction grouping, a visible find/replace
 panel, fuller command/menu routing and shortcuts, and external-change response UI.
@@ -197,9 +208,10 @@ The plugin host is exposed as the `MothPluginHost` executable product.
 
 ## Current Graphical Shell
 
-`swift run MothTextLinux` now opens a real Luna-rendered resizable window,
-accepts an optional file path, and runs until the window is closed. M2.1 renders
-and edits a real Moth-owned file document through Luna adapters, supports Open,
-Save, Save As, UTF-8 BOM preservation, and dirty-close protection, and keeps the
-optional plugin host as a separate smoke test. Visible find UI and undo/redo
-arrive in M2.2.
+`swift run MothTextLinux` opens a real Luna-rendered resizable window, accepts
+an optional file path, and runs until the window is closed. M2.2A maps two real
+pane leaves to independent Moth editor views over one file document. Each pane
+clips and soft-wraps against its own width, divider movement reflows both views,
+and pointer/keyboard editing follows the active pane. Open, Save, Save As, UTF-8
+BOM preservation, and dirty-close protection remain intact. Visible find UI and
+undo/redo arrive in M2.2B.

@@ -47,7 +47,7 @@ Exit condition achieved:
 
 ## M2 — First file-backed Luna-rendered Moth application slice
 
-**Status: M2.1 implemented and validated against Luna Phase 5F.1.**
+**Status: M2.2A implemented and validated against Luna Phase 5F.2A.**
 
 Delivered in M2.1:
 
@@ -62,7 +62,16 @@ Delivered in M2.1:
 - one file document retaining one authoritative buffer and two independent editor views;
 - regression coverage for file lifecycle, dialog routing, dirty-close policy, and shared-view ownership.
 
-M2.2 remains:
+Delivered in M2.2A:
+
+- two Luna pane leaves mapped to Moth's primary and secondary editor views;
+- independent caret, selection, logical-line scroll, and wrapped visual-row scroll state;
+- width-correct soft wrapping and clipping inside each pane's content bounds;
+- active-pane pointer and edit routing plus Ctrl+Tab pane traversal;
+- divider resizing that reflows both views without changing document ownership;
+- regression coverage for independent wrapping, pane activation, divider reflow, and focus traversal.
+
+M2.2B remains:
 
 - undo/redo transaction grouping;
 - visible find/replace panel integration;
@@ -70,10 +79,10 @@ M2.2 remains:
 - external-change response and reload/conflict presentation;
 - recent-file/session groundwork.
 
-M2.1 exit condition achieved:
+M2.2A exit condition achieved:
 
-> Moth can open a real UTF-8 file, edit and save it, Save As an untitled buffer,
-> preserve a UTF-8 BOM, refuse a cancelled dirty close, and reopen the saved file.
+> Two Moth editor views can share one real file document while clipping, wrapping,
+> scrolling, focusing, and editing independently inside Luna-owned pane geometry.
 
 ## M3 — Workspace fundamentals
 

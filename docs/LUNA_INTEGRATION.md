@@ -68,20 +68,20 @@ Moth owns:
 - Sublime-compatible commands, settings, keymaps, packages, and sessions;
 - syntax and language-service orchestration.
 
-## Phase 5F.1 compatibility point
+## Phase 5F.2A compatibility point
 
-Moth M2.1 requires the Luna Phase 5F.1 revision committed and pushed immediately
-before this Moth overlay is tested. Update it only through:
+Moth M2.2A requires Luna Phase 5F.2A or newer. Update it only through:
 
 ```bash
 ./scripts/update-luna.sh
 ```
 
-That Luna revision supplies the Phase 5E.2 document/view adapters, the public
-`LunaTheme` product, reusable pane/tab mechanics, and an application-owned SDL
-termination veto. Moth uses the termination veto to keep dirty-close Save / Don’t
-Save / Cancel policy in the product while Luna remains neutral.
+That Luna revision supplies pane content frames and width-correct soft-wrapped
+text-view geometry in addition to the Phase 5E.2 document/view adapters, public
+`LunaTheme` product, pane mechanics, and application-owned termination veto.
 
-Moth consumes Luna contracts only from `MothApplication` and platform entry points.
-`MothTextCore` remains headless, `MothWorkspace` owns file/document lifecycle, and
-`MothEditor` owns view and find/replace policy.
+Moth maps Luna pane IDs to its own primary and secondary editor-view state. Luna
+owns bounds, clipping, wrapping, visual-row hit testing, and reflow. Moth retains
+one authoritative file document plus independent caret, selection, and viewport
+state per view. `MothTextCore` remains headless, `MothWorkspace` owns file/document
+lifecycle, and `MothEditor` owns view and find/replace policy.
