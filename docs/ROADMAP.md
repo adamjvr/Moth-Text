@@ -47,7 +47,7 @@ Exit condition achieved:
 
 ## M2 — First file-backed Luna-rendered Moth application slice
 
-**Status: M2.2A implemented and validated against Luna Phase 5F.2A.**
+**Status: M2.2A plus Convergence C1A implemented and validated against the matching Luna C1A revision.**
 
 Delivered in M2.1:
 
@@ -71,7 +71,18 @@ Delivered in M2.2A:
 - divider resizing that reflows both views without changing document ownership;
 - regression coverage for independent wrapping, pane activation, divider reflow, and focus traversal.
 
-M2.2B remains:
+Convergence C1A delivered:
+
+- native text and resize cursor intent through LunaHostCore/LunaHostSDL;
+- forgiving, visibly responsive split-divider controls;
+- reliable drag ownership and pointer capture through mouse-up;
+- shared Luna interaction state consumed directly by Moth.
+
+Convergence C1B remains:
+
+- reusable click-drag text selection, Shift-click extension, word/line selection, and edge autoscroll.
+
+After C1B, M2.2B remains:
 
 - undo/redo transaction grouping;
 - visible find/replace panel integration;

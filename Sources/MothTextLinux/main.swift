@@ -79,6 +79,8 @@ private struct MothLinuxSDLScene: LunaSDLApplicationScene {
     var shell: MothApplicationShellScene
 
     var wantsContinuousRendering: Bool { shell.wantsContinuousRendering }
+    var cursorIntent: LunaCursorIntent { shell.cursorIntent }
+    var wantsPointerCapture: Bool { shell.wantsPointerCapture }
 
     mutating func shouldTerminate() -> Bool {
         shell.requestApplicationTermination()

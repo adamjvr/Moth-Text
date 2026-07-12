@@ -371,4 +371,105 @@ final class MothApplicationTests: XCTestCase {
         XCTAssertEqual(scene.secondaryView, secondary)
     }
 
+    func testDividerHoverRequestsResizeCursorWithoutCapture() throws {
+        var scene = MothApplicationShellScene()
+        let divider = try XCTUnwrap(
+            scene.paneLayout().dividerFrame(for: MothApplicationShellScene.mainSplitID)
+        )
+
+        _ = scene.handleHostEvent(
+            .pointer(LunaPointerEvent(
+                phase: .moved,
+                location: LunaPointI(x: divider.bounds.x + divider.bounds.w / 2, y: divider.bounds.y + divider.bounds.h / 2)
+            )),
+            framebufferSize: scene.framebufferSize
+        )
+
+        XCTAssertEqual(scene.cursorIntent, .resizeHorizontal)
+        XCTAssertFalse(scene.wantsPointerCapture)
+    }
+
+    func testDividerDragKeepsResizeCursorAndCaptureOutsideWindowUntilRelease() throws {
+        var scene = MothApplicationShellScene()
+        let divider = try XCTUnwrap(
+            scene.paneLayout().dividerFrame(for: MothApplicationShellScene.mainSplitID)
+        )
+
+        _ = scene.handleHostEvent(
+            .pointer(LunaPointerEvent(
+                phase: .down,
+                location: LunaPointI(x: divider.bounds.x + divider.bounds.w / 2, y: divider.bounds.y + divider.bounds.h / 2),
+                button: .primary
+            )),
+            framebufferSize: scene.framebufferSize
+        )
+        XCTAssertEqual(scene.cursorIntent, .resizeHorizontal)
+        XCTAssertTrue(scene.wantsPointerCapture)
+
+        _ = scene.handleHostEvent(
+            .pointer(LunaPointerEvent(
+                phase: .moved,
+                location: LunaPointI(x: -100, y: -100),
+                button: .primary
+            )),
+            framebufferSize: scene.framebufferSize
+        )
+        XCTAssertEqual(scene.cursorIntent, .resizeHorizontal)
+        XCTAssertTrue(scene.wantsPointerCapture)
+
+        _ = scene.handleHostEvent(
+            .pointer(LunaPointerEvent(
+                phase: .up,
+                location: LunaPointI(x: -100, y: -100),
+                button: .primary
+            )),
+            framebufferSize: scene.framebufferSize
+        )
+        XCTAssertFalse(scene.wantsPointerCapture)
+        XCTAssertEqual(scene.cursorIntent, .arrow)
+    }
+
+    func testEditorContentRequestsTextCursor() throws {
+        var scene = MothApplicationShellScene()
+        let content = try XCTUnwrap(
+            scene.paneContentFrame(for: MothApplicationShellScene.primaryPaneID)
+        ).contentBounds
+
+        _ = scene.handleHostEvent(
+            .pointer(LunaPointerEvent(
+                phase: .moved,
+                location: LunaPointI(x: content.x + 20, y: content.y + 20)
+            )),
+            framebufferSize: scene.framebufferSize
+        )
+
+        XCTAssertEqual(scene.cursorIntent, .text)
+        XCTAssertFalse(scene.wantsPointerCapture)
+    }
+
+    func testPointerCaptureLossCancelsActiveDividerDrag() throws {
+        var scene = MothApplicationShellScene()
+        let divider = try XCTUnwrap(
+            scene.paneLayout().dividerFrame(for: MothApplicationShellScene.mainSplitID)
+        )
+        let center = LunaPointI(
+            x: divider.bounds.x + divider.bounds.w / 2,
+            y: divider.bounds.y + divider.bounds.h / 2
+        )
+
+        _ = scene.handleHostEvent(
+            .pointer(LunaPointerEvent(phase: .down, location: center, button: .primary)),
+            framebufferSize: scene.framebufferSize
+        )
+        XCTAssertTrue(scene.wantsPointerCapture)
+
+        _ = scene.handleHostEvent(
+            .pointerCaptureLost,
+            framebufferSize: scene.framebufferSize
+        )
+
+        XCTAssertFalse(scene.wantsPointerCapture)
+        XCTAssertEqual(scene.cursorIntent, .arrow)
+    }
+
 }

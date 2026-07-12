@@ -136,10 +136,23 @@ Implemented against Luna Phase 5F.2A:
 - active-pane pointer/edit routing and Ctrl+Tab pane traversal;
 - divider resizing that immediately reflows both editor surfaces.
 
-### Next: M2.2B — Editing command depth
+### Convergence C1A — Native cursor and divider interaction
 
-The next product slice adds undo/redo transaction grouping, a visible find/replace
-panel, fuller command/menu routing and shortcuts, and external-change response UI.
+Implemented against Luna Convergence C1A:
+
+- native I-beam cursor over editable pane content;
+- horizontal resize cursor over the main divider;
+- forgiving 11-pixel semantic divider control with a thin center rule;
+- visible hover and active-drag feedback;
+- pointer capture while resizing, including motion outside the original divider/window bounds;
+- shared Luna pane interaction state instead of Moth-owned duplicate drag logic.
+
+### Next: Convergence C1B — Foundational mouse selection
+
+The next paired slice extracts LunaUITestApp's proven click-drag selection behavior
+into reusable Luna interaction state and consumes it immediately in both Moth panes.
+Undo/redo transaction grouping and command convergence follow after that mouse-input
+foundation is stable.
 
 See:
 
@@ -214,4 +227,4 @@ pane leaves to independent Moth editor views over one file document. Each pane
 clips and soft-wraps against its own width, divider movement reflows both views,
 and pointer/keyboard editing follows the active pane. Open, Save, Save As, UTF-8
 BOM preservation, and dirty-close protection remain intact. Visible find UI and
-undo/redo arrive in M2.2B.
+native cursor/divider interaction is complete in C1A. Reusable click-drag and richer text selection arrive in C1B before undo/redo and command convergence.

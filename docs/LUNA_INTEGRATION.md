@@ -70,7 +70,7 @@ Moth owns:
 
 ## Phase 5F.2A compatibility point
 
-Moth M2.2A requires Luna Phase 5F.2A or newer. Update it only through:
+Moth M2.2A with Convergence C1A requires the matching Luna Convergence C1A revision or newer. The required public seams include `LunaCursorIntent`, `LunaPaneContainerInteractionState`, axis-specific divider cursor intent, and the SDL scene cursor/capture contract. Update it only through:
 
 ```bash
 ./scripts/update-luna.sh

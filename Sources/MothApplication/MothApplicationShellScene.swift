@@ -33,7 +33,8 @@ public struct MothApplicationShellScene {
     private var documentController: MothDocumentController<MothLocalDocumentFileAccess>
     private var dialogService: any LunaDialogService
     private var suppressedTextInput: String?
-    private var draggedSplitID: LunaSplitID?
+    private var paneInteractionState: LunaPaneContainerInteractionState
+    private var currentCursorIntent: LunaCursorIntent
 
     public init(
         initialSize: LunaSizeI = LunaSizeI(width: 1100, height: 720),
@@ -62,7 +63,8 @@ public struct MothApplicationShellScene {
         self.documentController = MothDocumentController(fileAccess: MothLocalDocumentFileAccess())
         self.dialogService = dialogService
         self.suppressedTextInput = nil
-        self.draggedSplitID = nil
+        self.paneInteractionState = LunaPaneContainerInteractionState()
+        self.currentCursorIntent = .arrow
         self.statusMessage = document.snapshot().isUntitled
             ? "Untitled document — Ctrl+Shift+S to Save As"
             : "Opened \(document.snapshot().displayPath)"
@@ -98,6 +100,8 @@ public struct MothApplicationShellScene {
     public var buffer: MothInMemorySourceBuffer { document.buffer }
     public var documentSnapshot: MothDocumentSnapshot { document.snapshot() }
     public var wantsContinuousRendering: Bool { false }
+    public var cursorIntent: LunaCursorIntent { currentCursorIntent }
+    public var wantsPointerCapture: Bool { paneInteractionState.wantsPointerCapture }
     public var bufferSnapshot: MothSourceBufferSnapshot { buffer.snapshot() }
 
     public mutating func openDocument(at url: URL) throws {
@@ -147,6 +151,13 @@ public struct MothApplicationShellScene {
         case .windowResized:
             resetWrappedScrollAnchors()
             return LunaFrameInvalidationSet(.windowResized)
+
+        case .pointerCaptureLost:
+            paneInteractionState.cancelDrag()
+            paneInteractionState.hoveredSplitID = nil
+            currentCursorIntent = .arrow
+            statusMessage = "Pane resize cancelled after pointer capture loss"
+            return LunaFrameInvalidationSet(.input)
 
         case .pointer(let pointer):
             handlePointer(pointer)
@@ -230,9 +241,11 @@ public struct MothApplicationShellScene {
             id: LunaNodeID(rawValue: "moth.editor.panes"),
             bounds: bounds ?? paneEditorBounds(),
             state: paneWorkspace,
+            interactionState: paneInteractionState,
             theme: MothApplicationTheme.theme,
             metrics: LunaPaneContainerMetrics(
-                dividerThickness: 5,
+                dividerThickness: 11,
+                dividerRuleThickness: 1,
                 minimumPaneExtent: 120,
                 activePaneBorderThickness: 2
             )
@@ -280,41 +293,52 @@ public struct MothApplicationShellScene {
         )
     }
 
+    private func resolvedCursorIntent(at point: LunaPointI) -> LunaCursorIntent {
+        let container = paneContainer()
+        if let dividerIntent = container.cursorIntent(at: point) {
+            return dividerIntent
+        }
+        if let pane = paneLayout().paneFrames.first(where: { $0.bounds.contains(x: point.x, y: point.y) }),
+           let content = paneContentFrame(for: pane.paneID),
+           content.contentBounds.contains(x: point.x, y: point.y) {
+            return .text
+        }
+        return .arrow
+    }
+
     private mutating func handlePointer(_ event: LunaPointerEvent) {
         if event.phase == .down { pointerAccentIsActive.toggle() }
 
+        let wasDragging = paneInteractionState.isDraggingDivider
         let container = paneContainer()
-        let layout = container.layout()
+        var workspace = paneWorkspace
+        var interaction = paneInteractionState
+        let result = container.handlePointerEvent(
+            event,
+            state: &workspace,
+            interactionState: &interaction
+        )
+        paneWorkspace = workspace
+        paneInteractionState = interaction
+        currentCursorIntent = resolvedCursorIntent(at: event.location)
 
-        if event.phase == .down,
-           let divider = layout.dividerFrames.first(where: { $0.bounds.contains(x: event.location.x, y: event.location.y) }) {
-            draggedSplitID = divider.splitID
-            _ = paneWorkspace.setSplitFraction(divider.fraction(for: event.location), for: divider.splitID)
+        let ownsDividerGesture = wasDragging || interaction.isDraggingDivider || result.resizedSplitID != nil
+        if ownsDividerGesture {
             resetWrappedScrollAnchors()
-            return
-        }
-
-        if event.phase == .moved,
-           let splitID = draggedSplitID,
-           let divider = layout.dividerFrame(for: splitID) {
-            _ = paneWorkspace.setSplitFraction(divider.fraction(for: event.location), for: splitID)
-            resetWrappedScrollAnchors()
-            return
-        }
-
-        if event.phase == .up {
-            draggedSplitID = nil
+            statusMessage = interaction.isDraggingDivider
+                ? "Resizing editor panes"
+                : "Editor pane resize complete"
             return
         }
 
         guard event.phase == .down,
-              let pane = layout.paneFrames.first(where: { $0.bounds.contains(x: event.location.x, y: event.location.y) }) else {
+              let pane = paneLayout().paneFrames.first(where: { $0.bounds.contains(x: event.location.x, y: event.location.y) }) else {
             return
         }
 
-        _ = paneWorkspace.activate(pane.paneID)
-        guard let contentFrame = layout.contentFrame(for: pane.paneID, metrics: .editor),
+        guard let contentFrame = paneContentFrame(for: pane.paneID),
               contentFrame.contentBounds.contains(x: event.location.x, y: event.location.y) else {
+            currentCursorIntent = .arrow
             return
         }
 
