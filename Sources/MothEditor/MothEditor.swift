@@ -84,6 +84,7 @@ public struct MothEditorViewState: Hashable, Sendable {
     }
 
     /// Clamp only this view's coordinates to a new shared-buffer snapshot.
+    /// Direction-preserving selections remain direction preserving.
     @discardableResult
     public mutating func synchronize(with snapshot: MothSourceBufferSnapshot) -> Bool {
         precondition(snapshot.id == bufferID, "Editor view cannot observe a different buffer")
@@ -92,15 +93,19 @@ public struct MothEditorViewState: Hashable, Sendable {
         let upper = snapshot.utf8Count
         caret = MothTextOffset(rawValue: min(caret.rawValue, upper))
         if let selection, !selection.isCollapsed {
-            let range = selection.normalizedRange.clamped(toUTF8Count: upper)
-            self.selection = range.isEmpty
+            let anchor = MothTextOffset(rawValue: min(selection.anchor.rawValue, upper))
+            let focus = MothTextOffset(rawValue: min(selection.focus.rawValue, upper))
+            self.selection = anchor == focus
                 ? nil
-                : MothTextSelection(anchor: range.start, focus: range.end)
+                : MothTextSelection(anchor: anchor, focus: focus)
         } else {
             selection = nil
         }
 
-        viewport.firstVisibleLine = min(viewport.firstVisibleLine, max(0, lineCount(in: snapshot.text) - 1))
+        viewport.firstVisibleLine = min(
+            viewport.firstVisibleLine,
+            max(0, lineCount(in: snapshot.text) - 1)
+        )
         observedRevision = snapshot.revision
         return true
     }
@@ -122,6 +127,20 @@ public struct MothEditorViewState: Hashable, Sendable {
         selection = anchor == focus ? nil : MothTextSelection(anchor: anchor, focus: focus)
     }
 
+    /// Transform this view's coordinates through a known text transaction.
+    /// Viewport ownership remains local and is intentionally not rewound.
+    public mutating func transformCoordinates(through transaction: MothBufferTransaction) {
+        precondition(transaction.bufferID == bufferID, "View and transaction buffers must match")
+        caret = transaction.mapOffsetForward(caret)
+        if let selection {
+            let anchor = transaction.mapOffsetForward(selection.anchor)
+            let focus = transaction.mapOffsetForward(selection.focus)
+            self.selection = anchor == focus
+                ? nil
+                : MothTextSelection(anchor: anchor, focus: focus)
+        }
+    }
+
     private func lineCount(in text: String) -> Int {
         max(1, text.reduce(into: 1) { count, character in
             if character == "\n" { count += 1 }
@@ -129,8 +148,26 @@ public struct MothEditorViewState: Hashable, Sendable {
     }
 }
 
-/// Transaction helpers that apply edits through a shared Moth buffer while
-/// updating only the initiating view's presentation state.
+public extension MothBufferTransaction {
+    /// Map an absolute offset from the pre-transaction document into the
+    /// post-transaction document. Positions at or inside the replaced range use
+    /// after affinity so a caret at an insertion point follows inserted text.
+    func mapOffsetForward(_ offset: MothTextOffset) -> MothTextOffset {
+        let position = offset.rawValue
+        let start = replacedRange.start.rawValue
+        let oldEnd = replacedRange.end.rawValue
+        let newEnd = start + insertedText.utf8.count
+
+        if position < start { return offset }
+        if position > oldEnd {
+            return MothTextOffset(rawValue: position + newEnd - oldEnd)
+        }
+        return MothTextOffset(rawValue: newEnd)
+    }
+}
+
+/// Legacy transaction helpers retained for low-level/headless callers.
+/// Production document editing in C2 routes through `MothDocumentHistory`.
 public enum MothEditorTransactions {
     @discardableResult
     public static func replaceSelection(

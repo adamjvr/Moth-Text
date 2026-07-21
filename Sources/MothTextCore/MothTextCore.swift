@@ -6,7 +6,7 @@ import Foundation
 /// This target deliberately does not import Luna UI or platform frameworks.
 /// Buffer storage, editor transactions, selections, and undo will grow here.
 public enum MothTextCore {
-    public static let architectureVersion = 4
+    public static let architectureVersion = 5
 }
 
 /// Stable identity for a source buffer independent of any visible editor view.

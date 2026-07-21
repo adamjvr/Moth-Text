@@ -140,6 +140,56 @@ public struct MothFindSession: Sendable {
         return matches.count
     }
 
+
+    /// History-aware single replacement used by production document editing.
+    /// The legacy overload above remains for low-level callers and compatibility
+    /// tests, but application code should supply its document history and views.
+    @discardableResult
+    public mutating func replaceCurrent(
+        with replacement: String,
+        history: MothDocumentHistory,
+        originView: inout MothEditorViewState,
+        otherViews: inout [MothEditorViewState]
+    ) -> MothHistoryActionResult? {
+        refreshIfStale()
+        guard let match = results.selectedMatch else { return nil }
+        let result = history.performReplacement(
+            match.range,
+            with: replacement,
+            intent: .findReplace,
+            in: buffer,
+            originView: &originView,
+            otherViews: &otherViews,
+            placesCaretAfterReplacement: true
+        )
+        _ = update(query: results.query)
+        if !results.matches.isEmpty { selectNext() }
+        return result
+    }
+
+    /// History-aware Replace All. Every primitive replacement is retained in one
+    /// atomic group so one Undo restores the complete pre-command document.
+    @discardableResult
+    public mutating func replaceAll(
+        with replacement: String,
+        history: MothDocumentHistory,
+        originView: inout MothEditorViewState,
+        otherViews: inout [MothEditorViewState]
+    ) -> MothHistoryActionResult? {
+        refreshIfStale()
+        let matches = results.matches
+        guard !matches.isEmpty else { return nil }
+        let result = history.performBatchReplacements(
+            matches.reversed().map { (range: $0.range, replacement: replacement) },
+            intent: .replaceAll,
+            in: buffer,
+            originView: &originView,
+            otherViews: &otherViews
+        )
+        _ = update(query: results.query)
+        return result
+    }
+
     private mutating func refreshIfStale() {
         if buffer.snapshot().revision != results.bufferRevision {
             _ = update(query: results.query)

@@ -14,8 +14,8 @@ SwiftPM resolves it with:
 .package(path: "Dependencies/Luna-UI")
 ```
 
-The Git submodule pointer is the compatibility lock between the two repositories.
-Moth should not simultaneously declare a remote SwiftPM dependency for Luna.
+The Git submodule pointer is the compatibility lock between the repositories.
+Moth must not simultaneously declare a remote SwiftPM dependency for Luna.
 
 ## Clone and bootstrap
 
@@ -34,50 +34,68 @@ git submodule update --init Dependencies/Luna-UI
 
 ## Coordinated development
 
-A paired change normally proceeds in this order:
+A paired phase normally proceeds in this order:
 
-1. Implement and test the reusable mechanism in Luna.
-2. Commit and push the Luna branch.
-3. Integrate that API in Moth.
-4. Run Moth and Luna tests.
-5. Commit Moth source changes and the advanced Luna gitlink together.
+1. Implement and test a reusable mechanism in Luna when one is genuinely needed.
+2. Otherwise keep Luna source stable and update only permanent convergence docs.
+3. Commit and push Luna first.
+4. Advance Moth's Luna submodule with `./scripts/update-luna.sh`.
+5. Implement Moth-owned product behavior without editing Luna inside Moth.
+6. Build and test both repositories.
+7. Launch and manually test Moth.
+8. Commit Moth-owned changes and the Luna gitlink together.
 
-Never commit a Moth submodule-pointer update without recording what Luna behavior
-or API the new revision is required for.
+A paired phase does not require inventing a Luna API merely to manufacture a
+framework commit. C2 intentionally validates the product/framework boundary by
+implementing history entirely in Moth.
 
 ## Layer boundary
 
-Luna may provide optional reusable document and developer-tool components:
+Luna may provide reusable:
 
-- editable text surfaces;
+- editable text-surface geometry and rendering;
 - line-number and marker gutters;
+- pointer-selection interpretation;
 - search-panel presentation;
 - completion popups;
-- document tab strips;
-- split containers;
-- text decorations;
-- diff, log, console, and minimap primitives.
+- document tab strips and split containers;
+- text decorations, diff/log/console, and minimap primitives.
 
 Moth owns:
 
 - production source-buffer implementation;
+- document-local Undo/Redo history and grouping;
+- dirty-state and saved-checkpoint policy;
 - source-editor search and replacement policy;
 - multiple cursors;
-- undo grouping;
-- file and workspace lifecycle;
+- file/workspace lifecycle;
 - Sublime-compatible commands, settings, keymaps, packages, and sessions;
 - syntax and language-service orchestration.
 
-## Convergence C1B compatibility point
+## Convergence C2 compatibility point
 
-Moth M2.2A with Convergence C1B requires the matching Luna Convergence C1B revision or newer. The required public seams include `LunaCursorIntent`, `LunaPaneContainerInteractionState`, `LunaTextSelectionInteractionState`, `LunaTextSelectionInteraction`, clamped wrapped-text hit testing, Unicode-aware word/logical-line range helpers, axis-specific divider cursor intent, and the SDL scene cursor/capture contract. Update it only through:
+Moth C2 requires the Luna C1B public surface or newer. Required seams include:
+
+- `LunaCursorIntent`;
+- `LunaPaneContainerInteractionState`;
+- `LunaTextSelectionInteractionState` and `LunaTextSelectionInteraction`;
+- pane content frames and soft-wrapped text geometry;
+- UTF-8-safe clamped hit testing and word/logical-line ranges;
+- SDL scene cursor and pointer-capture contracts;
+- Phase 5E.2 document/view projection seams;
+- the public `LunaTheme` product and host dialog boundary.
+
+Update only through:
 
 ```bash
 ./scripts/update-luna.sh
 ```
 
-That Luna revision supplies pane content frames, width-correct soft-wrapped text-view geometry, native cursor/capture behavior, and product-neutral pointer-selection interpretation in addition to the Phase 5E.2 document/view adapters, public `LunaTheme` product, pane mechanics, and application-owned termination veto.
+C2 adds no Luna production source API. The Luna commit paired with C2 records the
+source freeze and roadmap checkpoint; the required runtime compatibility surface
+remains C1B.
 
-Moth maps Luna pane IDs and Luna selection results to its own primary and secondary editor-view state. Luna owns bounds, clipping, wrapping, visual-row hit testing, click-count interpretation, pointer-capture intent, reusable word/line units, and autoscroll requests. Moth retains one authoritative file document plus independent caret, selection, and viewport state per view. `MothTextCore` remains headless, `MothWorkspace` owns file/document lifecycle, and `MothEditor` owns actual view state, transactions, history, and find/replace policy.
-
-C1B does not move selection storage or document mutation into Luna. It only replaces duplicate application gesture decoding with one reusable mechanism.
+Moth maps Luna pane and selection results into its own views. Luna owns geometry,
+wrapping, hit testing, click-count interpretation, capture intent, cursor intent,
+and autoscroll requests. Moth retains the file document, source buffer, history,
+dirty state, caret, selection, preferred column, viewport, and edit meaning.

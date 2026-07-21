@@ -2,7 +2,7 @@
 
 **Moth Text** is a clean-room, open-source, Swift-native editor intended to
 reproduce the speed, command-driven workflow, extensibility, and user-facing
-behavior that make Sublime Text distinctive, while providing a modern and open
+behavior that make Sublime Text distinctive while providing a modern and open
 foundation for additional capabilities.
 
 Moth is not a Sublime Text fork and does not copy Sublime's proprietary internals.
@@ -21,24 +21,24 @@ Moth owns editor meaning, workflow, compatibility, and product policy.
 ```
 
 Luna supplies rendering, platform hosts, input, accessibility, themes, general
-widgets, and optional reusable components such as text surfaces, gutters, search
-panels, popups, tabs, split containers, and developer-tool views.
+widgets, panes, text-surface geometry, cursor/capture behavior, and reusable
+pointer-selection interpretation.
 
-Moth supplies production source buffers, editor transactions, multiple cursors,
-commands, projects, workspaces, settings, sessions, syntax, packages, plugins,
-language services, and Sublime compatibility.
+Moth supplies production source buffers, document history, editor transactions,
+multiple cursors, commands, projects, workspaces, settings, sessions, syntax,
+packages, plugins, language services, and Sublime compatibility.
 
 ## Repository relationship
 
-Luna is an independent repository pinned inside Moth at:
+Luna is an independent Git repository pinned inside Moth at:
 
 ```text
 Dependencies/Luna-UI
 ```
 
-The canonical Git repository tracks that path as a submodule. SwiftPM consumes it
-as a local package, so each Moth revision records the exact Luna revision it was
-tested against.
+The canonical repository tracks that path as a Git submodule. SwiftPM consumes it
+as a local package, so each Moth revision records the exact Luna revision against
+which it was built and tested.
 
 Clone with:
 
@@ -59,10 +59,10 @@ git submodule update --init Dependencies/Luna-UI
 
 ```text
 Sources/
-  MothTextCore/       headless source-buffer and editing foundations
-  MothEditor/         source-editor semantics and view state
-  MothWorkspace/      sheets, groups, projects, sessions, product policy
-  MothApplication/    shared Luna/product composition
+  MothTextCore/       headless source-buffer primitives and monotonic revisions
+  MothEditor/         editor views, history groups, undo/redo, find policy
+  MothWorkspace/      file documents, saved checkpoints, workspace policy
+  MothApplication/    shared Luna/product composition and input routing
   MothIPC/            JSON protocol and Unix-domain-socket transport
   MothPluginHost/     out-of-process service/plugin host proof
   MothTextLinux/      thin Linux platform entry point
@@ -71,7 +71,7 @@ Sources/
 Dependencies/
   Luna-UI/            pinned first-party framework dependency
 
-Tests/                headless module and protocol tests
+Tests/                headless module, history, integration, and protocol tests
 Resources/            Moth-owned themes, menus, settings, keymaps, syntaxes
 ```
 
@@ -79,13 +79,16 @@ Resources/            Moth-owned themes, menus, settings, keymaps, syntaxes
 
 - Luna never depends on Moth.
 - `MothTextCore` does not depend on Luna or platform UI frameworks.
-- A buffer is separate from any visible editor view.
-- Multiple views may share one buffer and retain independent view state.
+- A source buffer is separate from a file document and from every visible view.
+- Multiple views may share one document while retaining independent caret,
+  direction-preserving selection, preferred-column, and viewport state.
+- Buffer revisions are monotonic invalidation generations; undo history states
+  are separate logical identities that can move backward and forward.
+- Production application and workspace edits pass through the document-owned
+  history authority rather than mutating the raw buffer directly.
 - Platform executables remain thin host entry points.
 - Moth's interior is rendered with Luna rather than SwiftUI, AppKit widgets,
   GTK widgets, Qt, Electron, or web technology.
-- Reusable editor-adjacent components may live in optional Luna modules, but
-  Moth-specific behavior and compatibility remain in Moth.
 
 ## Current status
 
@@ -97,73 +100,86 @@ Implemented:
 - Luna local-package/submodule path;
 - foundational Moth product targets;
 - preserved IPC and plugin-host proof;
-- initial buffer/view identity distinction;
+- buffer/view identity distinction;
 - product/platform/framework boundary documentation;
-- bootstrap and verification scripts.
+- bootstrap and paired-repository verification scripts.
 
 ### M1.1 — Shared buffer and independent editor views
 
 Implemented against Luna Phase 5E.2:
 
 - one authoritative, revisioned Moth source buffer;
-- typed UTF-8 offsets, ranges, snapshots, transactions, and dirty state;
+- typed UTF-8 offsets, ranges, snapshots, and primitive transactions;
 - two independent editor views over the same buffer;
 - Moth-owned find/replace policy behind Luna presentation contracts;
-- a graphical Luna shell that renders and edits real Moth buffer content;
+- a graphical Luna shell backed by real Moth text;
 - headless architecture and behavior tests preserving the Moth/Luna boundary.
 
 ### M2.1 — First file-backed editor workflow
 
 Implemented against Luna Phase 5F.1:
 
-- Moth-owned file document identity, URL, display name, UTF-8/BOM encoding, saved revision, and known disk state;
+- Moth-owned file-document identity, URL, display name, UTF-8/BOM encoding, and
+  known disk state;
 - real Open, Save, and Save As through the Luna host-dialog boundary;
 - external-change detection without moving filesystem policy into Luna;
-- dirty-document Save / Don’t Save / Cancel protection when replacing or closing the current document;
-- file-name/path/encoding/dirty/revision projection into the graphical shell;
+- dirty-document Save / Don't Save / Cancel protection;
 - command-line file opening plus Linux zenity/yad/kdialog adapters;
-- a Moth-owned application theme supplied through Luna's public theme product;
-- two independent editor views retained over the file document's one authoritative buffer.
+- a Moth-owned application theme supplied through Luna's public theme product.
 
 ### M2.2A — Pane-bound editor-view integration
 
 Implemented against Luna Phase 5F.2A:
 
-- two real Luna pane leaves mapped to Moth's primary and secondary editor views;
-- one authoritative file document shared by both views;
-- independent caret, selection, logical-line, and wrapped visual-row viewport state;
+- two real Luna pane leaves mapped to Moth's primary and secondary views;
+- independent caret, selection, logical-line, and wrapped visual-row state;
 - width-correct soft wrapping and clipping inside each pane;
-- active-pane pointer/edit routing and Ctrl+Tab pane traversal;
-- divider resizing that immediately reflows both editor surfaces.
+- active-pane pointer/edit routing and Ctrl+Tab traversal;
+- divider resizing that reflows both views without changing document ownership.
 
 ### Convergence C1A — Native cursor and divider interaction
 
-Implemented against Luna Convergence C1A:
+Implemented against Luna C1A:
 
-- native I-beam cursor over editable pane content;
-- horizontal resize cursor over the main divider;
-- forgiving 11-pixel semantic divider control with a thin center rule;
-- visible hover and active-drag feedback;
-- pointer capture while resizing, including motion outside the original divider/window bounds;
-- shared Luna pane interaction state instead of Moth-owned duplicate drag logic.
+- native I-beam and resize cursor intent;
+- forgiving semantic divider controls with thin visible rules;
+- hover/active feedback and pointer capture through mouse-up;
+- shared Luna pane interaction state rather than duplicate Moth drag logic.
 
 ### Convergence C1B — Foundational mouse selection
 
-Implemented against Luna Convergence C1B:
+Implemented against Luna C1B:
 
-- click places the caret through wrapped, UTF-8-safe Luna hit testing;
-- Shift-click extends from the active Moth view's existing selection anchor;
-- click-drag selection works across logical lines and wrapped continuation rows;
-- double-click selects Unicode-aware word, whitespace, or punctuation runs;
-- triple-click selects a complete logical line, including its newline when present;
-- captured drags continue outside the visible text area and cancel safely after focus/capture loss;
-- edge autoscroll advances the active pane by visual rows while preserving selection ownership;
-- each pane retains independent caret, selection, and viewport state over the shared document;
-- typing, Backspace, and Delete continue replacing/removing the selected Moth range through existing editor transactions.
+- click, Shift-click, captured drag, Unicode-aware word selection, and logical-line
+  selection;
+- wrapped-row tracking and visual-row edge autoscroll;
+- safe capture-loss cancellation;
+- independent pane-local selection/caret/viewport state over one document;
+- selection replacement and removal through Moth editor transactions.
 
-### Next: Convergence C2 — Document-owned undo/redo
+### Convergence C2 — Document-owned undo/redo
 
-The next paired slice adds inverse edits, deterministic transaction grouping, redo invalidation, initiating-view caret/selection restoration, and a saved-history checkpoint so undoing back to disk content becomes clean without reusing stale buffer revisions. Luna remains stable unless C2 exposes a genuinely reusable presentation seam.
+Implemented in Moth while Luna's C1B source API remains stable:
+
+- document-local undo and redo stacks made of user-meaningful history groups;
+- inverse edit replay with monotonically increasing buffer revisions;
+- separate logical history-state identity for correct saved-state tracking;
+- deterministic typing, Backspace, and Delete coalescence with explicit semantic
+  boundaries instead of wall-clock timing;
+- redo invalidation and fresh branch identities after a new edit;
+- initiating-view caret/selection/preferred-column restoration;
+- edit-based coordinate transformation for all other views without rewinding
+  their viewports;
+- atomic selection replacement and history-aware Find Replace/Replace All paths;
+- Save and Save As move an exact saved-history checkpoint without clearing Undo;
+- a bounded per-document history-memory budget;
+- Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, and Ctrl+Y routing in the graphical shell.
+
+### Next: M2.2B — Command and visible find convergence
+
+The next product slice connects Moth's typed command authority to Luna menus,
+shortcuts, quick panels, and visible find/replace presentation. It also begins
+external-change reload/conflict presentation and recent-file/session groundwork.
 
 See:
 
@@ -175,8 +191,7 @@ See:
 
 ## Build
 
-Luna's current Linux development path requires SDL2, HarfBuzz, FreeType, and
-`pkg-config`:
+Luna's Linux development path requires SDL2, HarfBuzz, FreeType, and `pkg-config`:
 
 ```bash
 sudo apt update
@@ -187,9 +202,10 @@ Then:
 
 ```bash
 ./scripts/bootstrap.sh
+swift test
 ```
 
-Launch the graphical editor shell with an untitled document:
+Launch with an untitled document:
 
 ```bash
 swift run MothTextLinux
@@ -201,41 +217,26 @@ Or open a real file directly:
 swift run MothTextLinux /tmp/moth-test.txt
 ```
 
-Run the optional plugin-host proof separately with:
+Run the optional plugin-host proof separately:
 
 ```bash
 ./scripts/smoke-test-plugin-host.sh
 ```
+
+## Current graphical shell
+
+`swift run MothTextLinux` opens a real Luna-rendered resizable window and accepts
+an optional file path. Both pane-bound views share one file document while
+retaining independent presentation state. Open, Save, Save As, UTF-8 BOM
+preservation, dirty-close protection, native cursor/divider behavior, captured
+mouse selection, and document-owned Undo/Redo remain active together.
+
+C2 development diagnostics expose the monotonic buffer revision, logical history
+state, dirty state, active pane, and retained Undo/Redo group counts in the status
+bar. The visible Edit menu is still presentation-only; unified command/menu/palette
+routing is intentionally deferred to M2.2B.
 
 ## License
 
-Moth Text is licensed under the **Mozilla Public License 2.0 (`MPL-2.0`)**, matching Luna-UI. The complete license text is provided in [`LICENSE`](LICENSE). Source files, tests, package manifests, and repository scripts carry concise SPDX identifiers.
-
-The MPL-2.0 applies on a file-level basis: modifications to covered Moth Text files remain available under the MPL-2.0, while the license permits Moth Text to be combined with separately licensed code in a larger work.
-
-
-## Application and IPC smoke tests
-
-Normal Moth startup must succeed without the optional plugin host:
-
-```bash
-swift run MothTextLinux
-```
-
-Run the separate plugin-host IPC proof with:
-
-```bash
-./scripts/smoke-test-plugin-host.sh
-```
-
-The plugin host is exposed as the `MothPluginHost` executable product.
-
-## Current Graphical Shell
-
-`swift run MothTextLinux` opens a real Luna-rendered resizable window, accepts
-an optional file path, and runs until the window is closed. M2.2A maps two real
-pane leaves to independent Moth editor views over one file document. Each pane
-clips and soft-wraps against its own width, divider movement reflows both views,
-and pointer/keyboard editing follows the active pane. Open, Save, Save As, UTF-8
-BOM preservation, and dirty-close protection remain intact. Visible find UI and
-native cursor/divider interaction is complete in C1A, and reusable mouse selection is integrated in C1B. Document-owned undo/redo and correct saved-state tracking are next in C2 before command/find/menu convergence.
+Moth Text is licensed under the **Mozilla Public License 2.0 (`MPL-2.0`)**,
+matching Luna-UI. The complete license text is provided in [`LICENSE`](LICENSE).

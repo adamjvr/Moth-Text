@@ -7,12 +7,12 @@ separate responsibilities and independent histories.
 
 ```text
 Moth Text
-  product behavior, source buffers, editor commands, workspaces, projects,
-  settings, packages, compatibility, sessions, and language services
+  product behavior, source buffers, history, editor commands, workspaces,
+  projects, settings, packages, compatibility, sessions, language services
 
 Luna UI
   rendering, platform hosts, input, accessibility, themes, general widgets,
-  and optional reusable document/developer-tool components
+  panes, text geometry, and optional reusable document/developer components
 ```
 
 The governing rule is:
@@ -20,23 +20,9 @@ The governing rule is:
 > Luna owns reusable editor anatomy. Moth owns editor meaning, workflow,
 > compatibility, and product policy.
 
-## Repository relationship
-
-`Dependencies/Luna-UI` is the pinned Luna checkout consumed by SwiftPM through a
-local package path. The canonical Git repository should track this path as a
-submodule so every Moth commit records the exact Luna revision it expects.
-
-```text
-Moth-Text/
-  Dependencies/Luna-UI/   pinned Git submodule
-  Sources/                Moth product modules
-  Tests/                  headless product tests
-  Resources/              Moth themes, keymaps, menus, settings, syntaxes
-```
-
 Luna never depends on Moth.
 
-## Initial target graph
+## Target graph
 
 ```text
 MothTextMac -----------+
@@ -49,118 +35,198 @@ MothTextLinux ---------+          |
 
 MothPluginHost ------------------> MothIPC
 
-MothTextCore
-  imports Foundation only; no Luna or platform UI framework
+MothWorkspace --> MothEditor --> MothTextCore
+MothTextCore imports Foundation only; no Luna or platform UI framework
 ```
 
-## Buffer and view law
+## Buffer, document, history, and view law
 
-A source buffer is not a visible editor view. M1.1 implements this distinction
-as an executable contract rather than only an identity model.
+These are four distinct concepts:
 
 ```text
 MothInMemorySourceBuffer
-  text + revision + saved revision
-  +-- MothEditorViewState A
-  |     caret + selection + preferred column + viewport
-  +-- MothEditorViewState B
-        independent caret + selection + preferred column + viewport
+  authoritative bytes
+  monotonic render/search revision
+  current and saved logical history-state IDs
+
+MothFileDocument
+  file identity + encoding + known disk state
+  owns one source buffer
+  owns one MothDocumentHistory instance
+
+MothDocumentHistory
+  undo and redo groups
+  deterministic coalescing policy
+  origin-view checkpoints
+  bounded retained-memory estimate
+
+MothEditorViewState
+  caret + direction-preserving selection + preferred column + viewport
 ```
 
-Edits are Moth-owned transactions applied to the shared buffer. Each view observes
-the new revision and clamps its own presentation state without inheriting the
-other view's caret, selection, preferred column, or scroll position.
+One document may have many editor views:
 
-This distinction exists before split panes, cloned views, transient sheets, or
-durable workspace sessions are implemented.
+```text
+MothFileDocument
+  +-- source buffer
+  +-- document history
+  +-- primary MothEditorViewState
+  +-- secondary MothEditorViewState
+  +-- future cloned/grouped views
+```
+
+The document text and Undo/Redo history are shared. Caret, selection, preferred
+column, active-pane status, and viewport remain view-local.
+
+## Revision identity versus history identity
+
+`MothBufferRevision` is a monotonically increasing invalidation generation. Every
+content-changing edit, Undo, and Redo advances it so render projections and find
+results can detect stale content. It never moves backward.
+
+`MothHistoryStateID` identifies a logical position in Undo/Redo history. Undo moves
+to a prior state and Redo moves to a later retained state. A new branch edit always
+receives a fresh identity; abandoned redo states are never reused.
+
+```text
+isDirty = currentHistoryState != savedHistoryState
+```
+
+This separation allows Undo back to disk content to become clean while the buffer
+revision continues increasing.
+
+## Primitive edit and history-group law
+
+`MothBufferTransaction` records one UTF-8-safe applied replacement:
+
+- requested and actual replaced ranges;
+- removed and inserted text;
+- revision and history state before/after;
+- resulting caret;
+- whether bytes changed.
+
+`MothHistoryGroup` is one user-meaningful Undo unit. It may contain one primitive
+edit or many edits, such as ordinary typing, repeated deletion, or Replace All.
+Undo replays inverses in reverse order; Redo replays forward edits in original
+order.
+
+Production application/workspace edits route through `MothDocumentHistory`.
+Low-level raw buffer replacement remains available for storage tests and future
+infrastructure, and an architecture regression rejects direct use from
+`MothApplication` or `MothWorkspace`.
+
+## Deterministic grouping
+
+Typing and contiguous deletion coalesce only while all semantic preconditions
+remain true: same document state lineage, originating view, compatible intent,
+contiguous ranges, and coalescing epoch.
+
+The epoch is broken by navigation, pointer selection, pane switching, Save,
+Undo/Redo, newline, find/command actions, and capture/focus loss. Grouping does not
+depend on elapsed wall-clock time, making behavior deterministic and testable.
+
+## Multi-view history behavior
+
+Each history group records only the originating view's editor meaning before and
+after the group:
+
+```text
+view ID + caret + direction-preserving selection + preferred UTF-8 column
+```
+
+Viewport state is intentionally excluded.
+
+During an edit, Undo, or Redo:
+
+1. every non-origin view transforms caret and selection coordinates through each
+   known replacement;
+2. the originating view's matching checkpoint is restored when that view still
+   exists;
+3. every view synchronizes to the new monotonic buffer revision;
+4. active-pane ownership and independent viewports remain application state;
+5. the active pane may scroll only enough to reveal its own caret.
+
+## Saved checkpoint law
+
+Save and Save As:
+
+1. break the active coalescing run;
+2. capture text, revision, and logical history state together;
+3. write those captured bytes;
+4. mark that exact captured state as saved;
+5. preserve retained Undo/Redo groups.
+
+If a newer edit occurs during file I/O, marking the captured state does not
+incorrectly clean the newer state.
 
 ## Luna adapter boundary
 
-`MothApplication` is the only layer that projects production Moth state into Luna's
-product-neutral document/view contracts.
+`MothApplication` projects Moth state into Luna's neutral contracts:
 
 ```text
-MothTextCore source buffer
-        |
+Moth source-buffer snapshot
         +--> MothLunaTextStorageAdapter --> LunaTextStorageSnapshot
 
 MothEditorViewState
-        |
         +--> MothLunaViewProjection ----> LunaDocumentViewPresentationState
 
 MothFindSession
-        |
         +--> MothLunaFindPanelSession ---> LunaFindPanelSession
 ```
 
-The adapters expose immutable snapshots and presentation state. They do not move
-source-buffer ownership, transactions, dirty-state policy, or replacement policy
-into Luna. `MothTextCore` and `MothEditor` remain usable headlessly.
+Adapters expose snapshots and presentation state. They do not move source-buffer,
+history, dirty-state, file, or replacement policy into Luna.
 
 ## Module ownership
 
 ### MothTextCore
 
-Owns pure editor-domain primitives:
-
 - source-buffer identity and authoritative storage;
-- typed UTF-8 text coordinates and ranges;
-- immutable source-buffer snapshots;
-- edit transactions and revision tracking;
-- saved-revision and dirty-state ownership.
+- typed UTF-8 coordinates and ranges;
+- immutable snapshots;
+- primitive applied transactions;
+- monotonic buffer revisions;
+- current/saved logical history-state storage.
 
-Undo/redo history and cursor-set policy remain subsequent Moth work.
-
-It must remain headless and should not import Luna.
+It remains headless and Luna-free.
 
 ### MothEditor
 
-Owns source-editor semantics:
-
-- independent editor-view state and revision synchronization;
-- command-oriented insert/delete/replace behavior;
-- literal and regular-expression find/replace sessions over Moth buffers;
-- future multiple-cursor operations and transaction grouping;
-- completion insertion policy;
-- syntax and diagnostic interpretation;
-- decorations mapped into Luna presentation primitives.
+- independent editor-view state;
+- edit-based coordinate transformation;
+- history groups and inverse replay;
+- deterministic coalescing;
+- originating-view checkpoint restoration;
+- source-editor find and replacement policy;
+- future multiple-cursor operations and transaction grouping.
 
 ### MothWorkspace
 
-Owns product workspace policy:
-
-- windows and editor groups;
-- sheets and tabs;
-- active-view targeting;
-- transient and pinned behavior;
-- split placement;
-- sessions and restoration;
-- projects and folders.
-
-Luna may supply generic tab strips and split containers, but it does not decide
-what closing, pinning, previewing, or activating a Moth sheet means.
+- file-document identity and lifecycle;
+- ownership of each document's buffer and history instance;
+- saved-history checkpoints;
+- windows, groups, sheets, tabs, projects, and sessions.
 
 ### MothApplication
 
-Composes the product and Luna. Platform executables remain thin launch boundaries.
-They must not construct Moth's interior using SwiftUI, AppKit widgets, GTK widgets,
-Qt, Electron, or a web hierarchy.
+- composes Moth and Luna;
+- maps pane IDs to Moth views;
+- routes Luna pointer/keyboard/text input into Moth actions;
+- provides direct C2 keyboard routing while unified command routing remains later;
+- preserves thin platform executable boundaries.
 
 ### MothIPC and MothPluginHost
 
-Preserve the existing out-of-process service boundary. Plugin APIs should not be
-stabilized until buffers, commands, documents, and workspace ownership are stable.
+Preserve the out-of-process service boundary. Plugin APIs remain intentionally
+unstable until documents, commands, settings, and workspace ownership mature.
 
 ## Dependency laws
 
 1. Luna does not import Moth.
-2. MothTextCore does not import Luna, SDL, AppKit, Metal, GTK, or plugin runtimes.
+2. MothTextCore imports no Luna, SDL, AppKit, Metal, GTK, or plugin runtime.
 3. Platform executable targets do not own product state.
-4. Moth application code consumes Luna through public Swift products.
-5. Moth themes and compatibility files remain in Moth resources.
-6. A reusable capability may be promoted into an optional Luna component only
-   when its API is product-neutral and useful to another plausible application.
-
-## Licensing Baseline
-
-Moth Text and Luna-UI are independently maintained repositories licensed under the Mozilla Public License 2.0 (`MPL-2.0`). The Luna-UI submodule retains its own license notices and history. Moth source files remain covered by the Moth repository's MPL-2.0 license; importing or linking Luna through SwiftPM does not merge the two repositories or their ownership boundaries.
+4. Moth consumes Luna through public Swift products.
+5. Moth themes and compatibility files remain Moth resources.
+6. Product history, grouping, dirty state, and editor meaning remain Moth-owned.
+7. Reusable behavior is promoted to Luna only when product-neutral and useful to
+   another plausible application.

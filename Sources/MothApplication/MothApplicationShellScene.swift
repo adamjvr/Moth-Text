@@ -4,7 +4,8 @@
 //
 // Luna-rendered Moth editor slice backed by one real Moth-owned file document.
 // Luna owns pane geometry, wrapping, clipping, hit testing, and platform input.
-// Moth owns the document, transactions, dirty state, and independent view state.
+// Moth owns the document, history, transactions, dirty state, and independent
+// editor-view state.
 
 import Foundation
 import LunaCore
@@ -101,6 +102,7 @@ public struct MothApplicationShellScene {
 
     public var buffer: MothInMemorySourceBuffer { document.buffer }
     public var documentSnapshot: MothDocumentSnapshot { document.snapshot() }
+    public var historyStatus: MothHistoryStatus { document.history.status() }
     public var wantsContinuousRendering: Bool { textSelectionInteractionState.wantsContinuousUpdates }
     public var cursorIntent: LunaCursorIntent { currentCursorIntent }
     public var wantsPointerCapture: Bool {
@@ -109,6 +111,7 @@ public struct MothApplicationShellScene {
     public var bufferSnapshot: MothSourceBufferSnapshot { buffer.snapshot() }
 
     public mutating func openDocument(at url: URL) throws {
+        document.history.breakCoalescing()
         install(document: try documentController.open(url: url))
         statusMessage = "Opened \(document.snapshot().displayPath)"
     }
@@ -116,7 +119,7 @@ public struct MothApplicationShellScene {
     @discardableResult
     public mutating func saveDocument() throws -> MothDocumentSnapshot {
         let saved = try documentController.save(document)
-        statusMessage = "Saved \(saved.displayPath)"
+        statusMessage = "Saved \(saved.displayPath) — Undo history preserved"
         return saved
     }
 
@@ -130,7 +133,7 @@ public struct MothApplicationShellScene {
             to: url,
             allowsOverwrite: allowsOverwrite
         )
-        statusMessage = "Saved \(saved.displayPath)"
+        statusMessage = "Saved \(saved.displayPath) — Undo history preserved"
         return saved
     }
 
@@ -139,7 +142,38 @@ public struct MothApplicationShellScene {
     }
 
     public mutating func requestApplicationTermination() -> Bool {
-        prepareToReplaceOrCloseCurrentDocument(source: "window.close")
+        document.history.breakCoalescing()
+        return prepareToReplaceOrCloseCurrentDocument(source: "window.close")
+    }
+
+    @discardableResult
+    public mutating func undoDocument() -> MothHistoryActionResult? {
+        textSelectionInteractionState.cancel()
+        paneInteractionState.cancelDrag()
+        var views = [primaryView, secondaryView]
+        guard let result = document.history.undo(in: buffer, views: &views) else {
+            statusMessage = "Nothing to Undo"
+            return nil
+        }
+        restoreSceneViews(from: views)
+        statusMessage = "Undo: \(result.displayName)"
+        ensureActiveCaretVisible()
+        return result
+    }
+
+    @discardableResult
+    public mutating func redoDocument() -> MothHistoryActionResult? {
+        textSelectionInteractionState.cancel()
+        paneInteractionState.cancelDrag()
+        var views = [primaryView, secondaryView]
+        guard let result = document.history.redo(in: buffer, views: &views) else {
+            statusMessage = "Nothing to Redo"
+            return nil
+        }
+        restoreSceneViews(from: views)
+        statusMessage = "Redo: \(result.displayName)"
+        ensureActiveCaretVisible()
+        return result
     }
 
     public mutating func handleHostEvent(
@@ -160,11 +194,13 @@ public struct MothApplicationShellScene {
             paneInteractionState.cancelDrag()
             paneInteractionState.hoveredSplitID = nil
             textSelectionInteractionState.cancel()
+            document.history.breakCoalescing()
             currentCursorIntent = .arrow
             statusMessage = "Pointer selection/resize cancelled after capture loss"
             return LunaFrameInvalidationSet(.input)
 
         case .pointer(let pointer):
+            if pointer.phase == .down { document.history.breakCoalescing() }
             handlePointer(pointer)
             return LunaFrameInvalidationSet(.input)
 
@@ -180,11 +216,9 @@ public struct MothApplicationShellScene {
                 return LunaFrameInvalidationSet(.input)
             }
             suppressedTextInput = nil
-            let sourceBuffer = buffer
-            mutateActiveView { view in
-                _ = MothEditorTransactions.insert(textInput.text, in: sourceBuffer, view: &view)
+            if let result = performActiveInsert(textInput.text) {
+                statusMessage = result.displayName
             }
-            synchronizeViewsAfterSharedEdit()
             ensureActiveCaretVisible()
             return LunaFrameInvalidationSet(.textInput)
         }
@@ -329,7 +363,9 @@ public struct MothApplicationShellScene {
         paneInteractionState = paneInteraction
         currentCursorIntent = resolvedCursorIntent(at: event.location)
 
-        let ownsDividerGesture = wasDraggingDivider || paneInteraction.isDraggingDivider || paneResult.resizedSplitID != nil
+        let ownsDividerGesture = wasDraggingDivider
+            || paneInteraction.isDraggingDivider
+            || paneResult.resizedSplitID != nil
         if ownsDividerGesture {
             textSelectionInteractionState.cancel()
             resetWrappedScrollAnchors()
@@ -384,7 +420,7 @@ public struct MothApplicationShellScene {
         case .word: gesture = "word selection"
         case .line: gesture = "line selection"
         }
-        statusMessage = "C1B \(gesture) in \(target.paneID.rawValue): bytes=\(selectedBytes)"
+        statusMessage = "\(gesture) in \(target.paneID.rawValue): bytes=\(selectedBytes)"
     }
 
     private func paneSurface(at point: LunaPointI) -> (paneID: LunaPaneID, surface: MothPaneEditorSurface)? {
@@ -445,7 +481,7 @@ public struct MothApplicationShellScene {
         textSelectionInteractionState = interaction
         guard result.requestedVisualRowDelta != 0 || result.didChangeSelection else { return }
         applyTextSelectionResult(result, paneID: target.paneID, textView: target.surface.textView)
-        statusMessage = "C1B edge autoscroll in \(target.paneID.rawValue)"
+        statusMessage = "Edge autoscroll in \(target.paneID.rawValue)"
     }
 
     private mutating func resetWrappedScrollAnchors() {
@@ -461,30 +497,25 @@ public struct MothApplicationShellScene {
 
         switch event.key {
         case .backspace:
-            let sourceBuffer = buffer
-            mutateActiveView { view in
-                _ = MothEditorTransactions.deleteBackward(in: sourceBuffer, view: &view)
+            if let result = performActiveDeleteBackward() {
+                statusMessage = result.displayName
             }
-            synchronizeViewsAfterSharedEdit()
             ensureActiveCaretVisible()
 
         case .delete:
-            let sourceBuffer = buffer
-            mutateActiveView { view in
-                _ = MothEditorTransactions.deleteForward(in: sourceBuffer, view: &view)
+            if let result = performActiveDeleteForward() {
+                statusMessage = result.displayName
             }
-            synchronizeViewsAfterSharedEdit()
             ensureActiveCaretVisible()
 
         case .enter:
-            let sourceBuffer = buffer
-            mutateActiveView { view in
-                _ = MothEditorTransactions.insert("\n", in: sourceBuffer, view: &view)
+            if let result = performActiveInsert("\n") {
+                statusMessage = result.displayName
             }
-            synchronizeViewsAfterSharedEdit()
             ensureActiveCaretVisible()
 
         case .arrowLeft:
+            document.history.breakCoalescing()
             mutateActiveView { view in
                 let next = MothTextOffset(rawValue: max(0, view.caret.rawValue - 1))
                 view.setCaret(next, extendingSelection: event.modifiers.shift)
@@ -493,6 +524,7 @@ public struct MothApplicationShellScene {
             ensureActiveCaretVisible()
 
         case .arrowRight:
+            document.history.breakCoalescing()
             mutateActiveView { view in
                 let next = MothTextOffset(rawValue: min(snapshot.utf8Count, view.caret.rawValue + 1))
                 view.setCaret(next, extendingSelection: event.modifiers.shift)
@@ -501,21 +533,27 @@ public struct MothApplicationShellScene {
             ensureActiveCaretVisible()
 
         case .home:
+            document.history.breakCoalescing()
             moveActiveCaretToLineBoundary(end: false, extendingSelection: event.modifiers.shift)
 
         case .end:
+            document.history.breakCoalescing()
             moveActiveCaretToLineBoundary(end: true, extendingSelection: event.modifiers.shift)
 
         case .arrowUp:
+            document.history.breakCoalescing()
             moveActiveCaretVertically(by: -1, extendingSelection: event.modifiers.shift)
 
         case .arrowDown:
+            document.history.breakCoalescing()
             moveActiveCaretVertically(by: 1, extendingSelection: event.modifiers.shift)
 
         case .pageUp:
+            document.history.breakCoalescing()
             scrollActivePane(byVisualRows: -12)
 
         case .pageDown:
+            document.history.breakCoalescing()
             scrollActivePane(byVisualRows: 12)
 
         default:
@@ -527,6 +565,7 @@ public struct MothApplicationShellScene {
         guard event.modifiers.control || event.modifiers.command else { return false }
 
         if event.key == .tab {
+            document.history.breakCoalescing()
             _ = paneWorkspace.traverse(event.modifiers.shift ? .previous : .next, layout: paneLayout())
             return true
         }
@@ -535,12 +574,26 @@ public struct MothApplicationShellScene {
         let key = rawKey.lowercased()
 
         switch key {
+        case "z":
+            suppressedTextInput = key
+            if event.modifiers.shift {
+                _ = redoDocument()
+            } else {
+                _ = undoDocument()
+            }
+            return true
+        case "y":
+            suppressedTextInput = key
+            _ = redoDocument()
+            return true
         case "o":
             suppressedTextInput = key
+            document.history.breakCoalescing()
             requestOpenDocument()
             return true
         case "s":
             suppressedTextInput = key
+            document.history.breakCoalescing()
             if event.modifiers.shift {
                 _ = requestSaveDocumentAs()
             } else if document.snapshot().isUntitled {
@@ -555,6 +608,81 @@ public struct MothApplicationShellScene {
             return true
         default:
             return false
+        }
+    }
+
+    private mutating func performActiveInsert(_ text: String) -> MothHistoryActionResult? {
+        if paneWorkspace.activePaneID == Self.secondaryPaneID {
+            var others = [primaryView]
+            let result = document.history.insert(
+                text,
+                in: buffer,
+                originView: &secondaryView,
+                otherViews: &others
+            )
+            primaryView = others[0]
+            return result
+        }
+        var others = [secondaryView]
+        let result = document.history.insert(
+            text,
+            in: buffer,
+            originView: &primaryView,
+            otherViews: &others
+        )
+        secondaryView = others[0]
+        return result
+    }
+
+    private mutating func performActiveDeleteBackward() -> MothHistoryActionResult? {
+        if paneWorkspace.activePaneID == Self.secondaryPaneID {
+            var others = [primaryView]
+            let result = document.history.deleteBackward(
+                in: buffer,
+                originView: &secondaryView,
+                otherViews: &others
+            )
+            primaryView = others[0]
+            return result
+        }
+        var others = [secondaryView]
+        let result = document.history.deleteBackward(
+            in: buffer,
+            originView: &primaryView,
+            otherViews: &others
+        )
+        secondaryView = others[0]
+        return result
+    }
+
+    private mutating func performActiveDeleteForward() -> MothHistoryActionResult? {
+        if paneWorkspace.activePaneID == Self.secondaryPaneID {
+            var others = [primaryView]
+            let result = document.history.deleteForward(
+                in: buffer,
+                originView: &secondaryView,
+                otherViews: &others
+            )
+            primaryView = others[0]
+            return result
+        }
+        var others = [secondaryView]
+        let result = document.history.deleteForward(
+            in: buffer,
+            originView: &primaryView,
+            otherViews: &others
+        )
+        secondaryView = others[0]
+        return result
+    }
+
+    private mutating func restoreSceneViews(from views: [MothEditorViewState]) {
+        for view in views {
+            if view.id == primaryView.id {
+                primaryView = view
+            } else if view.id == secondaryView.id {
+                secondaryView = view
+            }
         }
     }
 
@@ -755,12 +883,6 @@ public struct MothApplicationShellScene {
         _ = secondaryView.synchronize(with: snapshot)
     }
 
-    private mutating func synchronizeViewsAfterSharedEdit() {
-        let snapshot = buffer.snapshot()
-        _ = primaryView.synchronize(with: snapshot)
-        _ = secondaryView.synchronize(with: snapshot)
-    }
-
     private func lunaSnapshot() -> LunaTextStorageSnapshot {
         MothLunaTextStorageAdapter(buffer: buffer).textSnapshot()
     }
@@ -790,14 +912,15 @@ public struct MothApplicationShellScene {
         LunaDebugBitmapTextRenderer.draw(tabTitle, atX: 18, y: 45, color: palette.text, into: &framebuffer)
 
         let snapshot = documentSnapshot.buffer
-        let dirty = snapshot.isDirty ? "MODIFIED" : "SAVED"
+        let history = document.history.status()
+        let dirty = documentSnapshot.isDirty ? "MODIFIED" : "SAVED"
         let pane = paneWorkspace.activePaneID == Self.primaryPaneID ? "PRIMARY" : "SECONDARY"
-        let status = "\(documentSnapshot.encoding.displayName)   REV \(snapshot.revision.rawValue)   \(dirty)   \(pane)   \(statusMessage)"
+        let status = "\(documentSnapshot.encoding.displayName)   REV \(snapshot.revision.rawValue)   H\(snapshot.historyState.rawValue)   \(dirty)   U\(history.undoGroupCount)/R\(history.redoGroupCount)   \(pane)   \(statusMessage)"
         LunaDebugBitmapTextRenderer.draw(
             status,
             atX: 12,
             y: max(0, framebuffer.height - statusHeight + 8),
-            color: snapshot.isDirty ? activeAccent : palette.mutedText,
+            color: documentSnapshot.isDirty ? activeAccent : palette.mutedText,
             maximumWidth: max(0, framebuffer.width - 24),
             into: &framebuffer
         )
@@ -815,8 +938,9 @@ public struct MothApplicationShellScene {
         LunaDebugBitmapTextRenderer.draw(snapshot.isUntitled ? "UNTITLED" : "FILE-BACKED", atX: 28, y: 164, color: palette.text, into: &framebuffer)
         LunaDebugBitmapTextRenderer.draw(snapshot.encoding.displayName, atX: 40, y: 184, color: palette.mutedText, maximumWidth: sidebarWidth - 50, into: &framebuffer)
         LunaDebugBitmapTextRenderer.draw(snapshot.displayPath, atX: 40, y: 204, color: palette.mutedText, maximumWidth: sidebarWidth - 50, into: &framebuffer)
-        LunaDebugBitmapTextRenderer.draw("Ctrl+O Open   Ctrl+S Save", atX: 28, y: 236, color: palette.mutedText, maximumWidth: sidebarWidth - 38, into: &framebuffer)
-        LunaDebugBitmapTextRenderer.draw("Ctrl+Tab switches panes", atX: 28, y: 256, color: palette.mutedText, maximumWidth: sidebarWidth - 38, into: &framebuffer)
+        LunaDebugBitmapTextRenderer.draw("Ctrl+Z Undo   Ctrl+Shift+Z Redo", atX: 28, y: 236, color: palette.mutedText, maximumWidth: sidebarWidth - 38, into: &framebuffer)
+        LunaDebugBitmapTextRenderer.draw("Ctrl+O Open   Ctrl+S Save", atX: 28, y: 256, color: palette.mutedText, maximumWidth: sidebarWidth - 38, into: &framebuffer)
+        LunaDebugBitmapTextRenderer.draw("Ctrl+Tab switches panes", atX: 28, y: 276, color: palette.mutedText, maximumWidth: sidebarWidth - 38, into: &framebuffer)
     }
 
     private func drawPaneEditors(
@@ -895,9 +1019,10 @@ public struct MothApplicationShellScene {
     }
 
     public static let demoText = """
-    // Moth Text M2.2A
-    // Two pane-bound editor views share one file document while retaining
-    // independent caret, selection, wrapping, and viewport state.
+    // Moth Text Convergence C2
+    // Two pane-bound editor views share one file document and one Moth-owned
+    // Undo/Redo history while retaining independent caret, selection, wrapping,
+    // and viewport state.
 
     import MothTextCore
     import MothEditor
@@ -909,7 +1034,6 @@ public struct MothApplicationShellScene {
         firstVisibleLine: 24
     )
 
-    MothEditorTransactions.insert("!", in: buffer, view: &primary)
-    // Resize the divider: each pane rewraps inside its own content bounds.
+    // Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z traverse document history.
     """
 }

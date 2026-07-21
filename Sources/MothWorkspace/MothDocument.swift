@@ -8,6 +8,7 @@
 // source buffer associated with a product document.
 
 import Foundation
+import MothEditor
 import MothTextCore
 
 public struct MothDocumentID: Hashable, Sendable, Codable, RawRepresentable, CustomStringConvertible {
@@ -226,6 +227,7 @@ public struct MothDocumentSnapshot: Sendable {
 public final class MothFileDocument: @unchecked Sendable {
     public let id: MothDocumentID
     public let buffer: MothInMemorySourceBuffer
+    public let history: MothDocumentHistory
 
     private let metadataLock = NSLock()
     private var fileURLStorage: URL?
@@ -239,10 +241,15 @@ public final class MothFileDocument: @unchecked Sendable {
         fileURL: URL? = nil,
         displayName: String? = nil,
         encoding: MothTextEncoding = .utf8,
-        knownFileState: MothFileState? = nil
+        knownFileState: MothFileState? = nil,
+        historyMemoryBudgetBytes: Int = MothDocumentHistory.defaultMemoryBudgetBytes
     ) {
         self.id = id
         self.buffer = buffer
+        self.history = MothDocumentHistory(
+            initialState: buffer.snapshot().historyState,
+            memoryBudgetBytes: historyMemoryBudgetBytes
+        )
         let standardizedURL = fileURL?.standardizedFileURL
         self.fileURLStorage = standardizedURL
         self.displayNameStorage = displayName
@@ -256,7 +263,8 @@ public final class MothFileDocument: @unchecked Sendable {
         id: MothDocumentID = MothDocumentID(),
         untitledText: String = "",
         displayName: String = "untitled",
-        encoding: MothTextEncoding = .utf8
+        encoding: MothTextEncoding = .utf8,
+        historyMemoryBudgetBytes: Int = MothDocumentHistory.defaultMemoryBudgetBytes
     ) {
         self.init(
             id: id,
@@ -264,7 +272,8 @@ public final class MothFileDocument: @unchecked Sendable {
             fileURL: nil,
             displayName: displayName,
             encoding: encoding,
-            knownFileState: nil
+            knownFileState: nil,
+            historyMemoryBudgetBytes: historyMemoryBudgetBytes
         )
     }
 
@@ -328,6 +337,7 @@ public struct MothDocumentController<FileAccess: MothDocumentFileAccess>: Sendab
 
     @discardableResult
     public func save(_ document: MothFileDocument) throws -> MothDocumentSnapshot {
+        document.history.breakCoalescing()
         let snapshot = document.snapshot()
         guard let url = snapshot.fileURL else {
             throw MothDocumentFileError.noSaveDestination
@@ -351,6 +361,7 @@ public struct MothDocumentController<FileAccess: MothDocumentFileAccess>: Sendab
         if !allowsOverwrite && fileAccess.itemExists(at: standardizedURL) {
             throw MothDocumentFileError.destinationExists(standardizedURL.path)
         }
+        document.history.breakCoalescing()
         let before = document.snapshot()
         let resolvedEncoding = encoding ?? before.encoding
         let savedState = try fileAccess.writeTextFile(
@@ -364,7 +375,10 @@ public struct MothDocumentController<FileAccess: MothDocumentFileAccess>: Sendab
             encoding: resolvedEncoding,
             fileState: savedState
         )
-        document.buffer.markSaved()
+        document.buffer.markSaved(
+            historyState: before.buffer.historyState,
+            revision: before.buffer.revision
+        )
         return document.snapshot()
     }
 

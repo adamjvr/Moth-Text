@@ -45,11 +45,14 @@ public enum MothLunaViewProjection {
         let caretLocation = document.location(forAbsoluteUTF8Offset: view.caret.rawValue)
         let selection: LunaStaticTextSelection?
         if let mothSelection = view.selection, !mothSelection.isCollapsed {
-            let range = mothSelection.normalizedRange
             selection = LunaStaticTextSelection(
                 range: LunaTextRange(
-                    anchor: document.location(forAbsoluteUTF8Offset: range.start.rawValue),
-                    focus: document.location(forAbsoluteUTF8Offset: range.end.rawValue)
+                    anchor: document.location(
+                        forAbsoluteUTF8Offset: mothSelection.anchor.rawValue
+                    ),
+                    focus: document.location(
+                        forAbsoluteUTF8Offset: mothSelection.focus.rawValue
+                    )
                 )
             )
         } else {

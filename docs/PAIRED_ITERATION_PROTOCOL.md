@@ -1,32 +1,38 @@
 # Luna UI and Moth Text Paired Iteration Protocol
 
-Moth Text consumes Luna UI through the real Git submodule at `Dependencies/Luna-UI`.
+Moth consumes Luna through the Git submodule at `Dependencies/Luna-UI`.
 
-## Required Sequence
+## Required sequence
 
 ```text
-1. Implement the Luna change in the Luna-UI repository.
-2. Build and test Luna UI.
-3. Commit and push Luna UI.
-4. Update Moth's Luna submodule checkout.
-5. Implement the Moth integration without editing Luna from the Moth delivery.
-6. Build and test Moth Text against the pinned Luna commit.
-7. Launch and manually smoke-test the Moth application.
-8. Run the optional plugin-host IPC smoke test when IPC code changes.
-9. Commit Moth-owned changes and the submodule gitlink update.
+1. Decide whether the phase exposes a genuinely reusable Luna mechanism.
+2. Implement/test that mechanism in Luna, or intentionally keep Luna source frozen.
+3. Update permanent Luna checkpoint/roadmap documentation.
+4. Commit and push Luna first.
+5. Run Moth's scripts/update-luna.sh on the normal Luna main branch.
+6. Implement Moth product behavior without editing Luna from the Moth delivery.
+7. Build and test Moth against the pinned Luna commit.
+8. Launch and manually smoke-test Moth.
+9. Run plugin-host IPC smoke testing when IPC code changes or as a final regression.
+10. Commit Moth-owned changes and the Luna gitlink update together.
 ```
+
+Do not add a framework abstraction merely to force every phase to contain Luna
+source changes. A documentation-only Luna checkpoint is valid when product work
+proves the existing public surface sufficient, as in Convergence C2.
 
 ## Updating Luna in Moth
 
 ```bash
-cd Dependencies/Luna-UI
-git switch main
-git pull --ff-only
-cd ../..
+cd ~/GitHub/Moth-Text
+./scripts/update-luna.sh
 
-git submodule status
-git diff --submodule=log -- Dependencies/Luna-UI
+git -C Dependencies/Luna-UI branch --show-current
+git -C Dependencies/Luna-UI log -1 --oneline
+git diff --submodule=short Dependencies/Luna-UI
 ```
+
+The dependency must remain on `main`, not detached.
 
 ## Validation
 
@@ -34,69 +40,52 @@ git diff --submodule=log -- Dependencies/Luna-UI
 ./scripts/validate-paired-iteration.sh
 ```
 
-The validation rejects:
+Validation rejects:
 
 - an uninitialized Luna submodule;
-- a Luna checkout at a revision different from the recorded gitlink;
-- merge conflicts in the submodule;
-- uncommitted files inside Luna;
+- a checkout different from the recorded gitlink when validating a committed tree;
+- merge conflicts or uncommitted files inside Luna;
 - failed Moth builds or tests.
 
-## Moth Deliveries
+## Overlay deliveries
 
-Moth ZIPs are overlays, not complete dependency bundles. They must exclude:
+Moth ZIPs are repository overlays, not dependency bundles. They must exclude:
 
 ```text
 Dependencies/Luna-UI/**
+.git/**
+.build/**
 ```
 
-Create a safe overlay with:
+Luna and Moth overlays are always separate. Extract, validate, commit, and push
+Luna first; then update the Moth submodule and apply the Moth overlay.
 
-```bash
-./scripts/package-overlay.sh /tmp/Moth-Text-phase-overlay.zip
-```
-
-The overlay is extracted into the Moth repository only after the user updates the Luna submodule normally with Git.
-
-## Commit Boundary
+## Commit boundary
 
 A Moth commit may contain:
 
-- Moth-owned sources, tests, resources, scripts, and documentation;
-- `Package.swift` changes;
+- Moth-owned sources, tests, resources, scripts, and permanent documentation;
+- `Package.swift` changes when required;
 - the `Dependencies/Luna-UI` gitlink update.
 
-A Moth commit must not contain copied or patched files from within Luna UI.
+A Moth commit must not contain copied or patched files from inside Luna.
+Temporary validation, extraction, hotfix, delivery, or commit-instruction files do
+not belong in either repository.
 
+## Graphical application gate
 
-## Application smoke-test gate
-
-After automated validation succeeds, run:
+After automated validation:
 
 ```bash
 swift run MothTextLinux
 ```
 
-Normal application startup must not require the optional plugin host. When IPC or plugin-host code changes, also run:
+Verify a real window opens, remains active, renders Luna chrome and Moth text,
+resizes correctly, accepts pointer/keyboard interaction, and closes cleanly.
+Phase-specific manual checks are performed in addition to this baseline.
+
+Normal startup must not require the optional plugin host. Validate IPC separately:
 
 ```bash
 ./scripts/smoke-test-plugin-host.sh
 ```
-
-The plugin-host executable product is named `MothPluginHost`.
-
-## Graphical Application Gate
-
-A successful process launch message is not sufficient. Every Linux Moth
-iteration must run `swift run MothTextLinux` and visibly verify that:
-
-- a real `Moth Text` window opens;
-- the terminal remains occupied while the window is open;
-- Luna-rendered chrome is visible;
-- resizing works;
-- pointer interaction visibly updates the shell;
-- closing the window exits cleanly.
-
-The plugin host is validated separately with
-`scripts/smoke-test-plugin-host.sh`; plugin IPC is not a prerequisite for the
-core application window.
