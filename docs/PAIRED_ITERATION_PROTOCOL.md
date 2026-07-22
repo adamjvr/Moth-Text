@@ -156,3 +156,37 @@ the shaped insertion position after every operation.
 
 The next paired slice is M3A document sheets and real tabs. M2.2B2 visible
 Find/Replace follows after the active-document targeting model exists.
+
+
+## C2.3 input-to-pixel latency checkpoint
+
+Commit and validate Luna first:
+
+```bash
+swift build
+swift test --filter LunaHostPhase5C1Tests
+swift test --filter LunaHostSDLApplicationTests
+swift test --filter LunaUIPhase5CTests
+swift test
+./scripts/validate-iteration.sh
+git diff --check
+```
+
+Graphically run both Luna modes:
+
+```bash
+swift run LunaUITestApp
+swift run LunaUITestApp --editor
+```
+
+After advancing the Moth gitlink, run:
+
+```bash
+swift test --filter MothInputLatencyTests
+./scripts/validate-paired-iteration.sh
+swift run MothTextLinux
+./scripts/smoke-test-plugin-host.sh
+git diff --check
+```
+
+The expected Moth total is 115 tests. C2.3 must be accepted before M3A real tabs.

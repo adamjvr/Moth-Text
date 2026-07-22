@@ -62,3 +62,11 @@ swift test --filter MothTextGeometryAndScrollingTests
 
 The Moth overlay must not contain files below `Dependencies/Luna-UI`; only the git
 submodule pointer is committed. M3A is the next compatibility checkpoint.
+
+
+## C2.3 Luna checkpoint
+
+C2.3 advances Luna for frame-fair SDL polling, ordered committed-text coalescing,
+input-to-present timing, and the restored default kitchen-sink demo. Commit Luna,
+wait for its CI, run `./scripts/update-luna.sh`, stage `Dependencies/Luna-UI`, and
+only then run Moth's paired validation. M3A is the next gitlink checkpoint.

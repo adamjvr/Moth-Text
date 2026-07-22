@@ -176,3 +176,15 @@ The next paired slice is M3A document sheets and real tabs. It should reuse Luna
 existing generic tab strip and workspace mechanics unless implementation exposes a
 new product-neutral seam. M2.2B2 then reuses the existing Luna find-panel
 presentation against the active Moth sheet.
+
+
+## Convergence C2.3 compatibility point
+
+C2.3 advances the Luna gitlink for reusable host-runtime behavior rather than
+product policy. Luna adds bounded SDL polling, committed-text coalescing,
+polling/backlog diagnostics, input-to-present timing, and restored kitchen-sink
+demo defaults. Moth consumes the ordered event batches and retains ownership of
+buffer mutation, history, caret/view state, and shaped-text cache policy.
+
+The next compatibility point is M3A. Existing Luna tab primitives should be reused;
+Luna changes only when Moth exposes a genuinely reusable tab/sheet projection gap.

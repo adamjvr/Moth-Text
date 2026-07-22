@@ -64,3 +64,14 @@ The graphical pass must include rapid input, precomposed and decomposed Unicode,
 click placement, selection, wheel and touchpad scrolling over both panes,
 scrollbar lane paging, thumb dragging, capture loss, Page Up/Page Down, and
 caret-follow scrolling.
+
+
+## C2.3 latency follow-up
+
+C2.3 leaves the exact C2.2 geometry unchanged. The host now presents between
+bounded input batches, so the correct text/caret state reaches the framebuffer
+without waiting for an unbounded queue drain. Adjacent committed text is applied
+through one Moth insertion transaction and one caret-follow update. The shaped
+layout cache uses bounded LRU retention and exposes hit/miss and shaping-time
+snapshots for regression diagnostics without drawing a constantly changing status
+string that would itself defeat caching.

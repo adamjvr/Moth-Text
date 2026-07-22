@@ -364,3 +364,20 @@ translation, clamping mechanics, lane paging, and thumb-drag geometry.
 
 C2.2 remains a single-document phase. Document sheets, real tabs, and target-aware
 close policy begin in M3A.
+
+
+## C2.3 input-to-pixel latency boundary
+
+Luna owns bounded platform-event polling, committed-text coalescing, frame timing,
+and presentation fairness. Moth receives an ordered platform-neutral event stream
+and continues to own buffer transactions, history grouping, caret meaning, and
+view synchronization.
+
+Plain printable SDL key-down events do not become editor text. SDL committed text
+is authoritative and adjacent committed events may arrive as one string. Moth
+applies that string through one history insertion, then performs one caret-visibility
+calculation. Commands, navigation, pointer events, resize, and focus changes remain
+hard ordering barriers.
+
+Moth's shaped-layout cache is bounded and observational diagnostics are not painted
+into the hot editor path. The document model remains single-document until M3A.

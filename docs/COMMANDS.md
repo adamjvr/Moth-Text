@@ -127,3 +127,13 @@ commands.
 After M3A, Ctrl/Cmd+Tab becomes document-tab traversal. Pane traversal will receive
 a distinct command and binding so the command vocabulary does not overload one
 shortcut with two product meanings.
+
+
+## C2.3 input batching note
+
+Command events are hard committed-text coalescing barriers. A sequence such as
+text, shortcut, text is delivered to Moth in that order and can never become one
+text transaction around the command. The same rule applies to navigation,
+pointer, resize, capture-loss, and focus-related host events. Disabled shortcuts
+remain consumed by the command authority and retain the existing one-shot text
+suppression path.

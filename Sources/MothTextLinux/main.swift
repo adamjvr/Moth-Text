@@ -96,6 +96,17 @@ private struct MothLinuxSDLScene: LunaSDLApplicationScene {
         shell.handleHostEvent(event, framebufferSize: framebufferSize)
     }
 
+    mutating func updateFrameRuntimeDiagnostics(
+        timingStats: LunaFrameTimingStats,
+        invalidations: LunaFrameInvalidationSet,
+        inputCoalescingStats: LunaInputCoalescingStats
+    ) {
+        shell.updateHostRuntimeDiagnostics(
+            timingStats: timingStats,
+            inputStats: inputCoalescingStats
+        )
+    }
+
     mutating func render(into framebuffer: inout LunaFramebuffer) {
         shell.render(into: &framebuffer)
     }

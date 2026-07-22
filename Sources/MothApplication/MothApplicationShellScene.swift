@@ -34,6 +34,8 @@ public struct MothApplicationShellScene {
     public private(set) var statusMessage: String
     public private(set) var lastCommandID: LunaCommandID?
     public private(set) var lastCommandSource: String?
+    public private(set) var hostFrameTimingStats: LunaFrameTimingStats
+    public private(set) var hostInputStats: LunaInputCoalescingStats
 
     private var documentController: MothDocumentController<MothLocalDocumentFileAccess>
     private var dialogService: any LunaDialogService
@@ -82,6 +84,8 @@ public struct MothApplicationShellScene {
         self.commandPaletteState = nil
         self.lastCommandID = nil
         self.lastCommandSource = nil
+        self.hostFrameTimingStats = LunaFrameTimingStats()
+        self.hostInputStats = LunaInputCoalescingStats()
         self.statusMessage = document.snapshot().isUntitled
             ? "Untitled document — Ctrl+Shift+S to Save As"
             : "Opened \(document.snapshot().displayPath)"
@@ -118,6 +122,27 @@ public struct MothApplicationShellScene {
     public var documentSnapshot: MothDocumentSnapshot { document.snapshot() }
     public var historyStatus: MothHistoryStatus { document.history.status() }
     public var unicodeTextDiagnostics: MothUnicodeTextDiagnostics { MothUnicodeTextPainter.diagnostics }
+    public var unicodeTextPerformance: MothUnicodeTextPerformanceSnapshot {
+        MothUnicodeTextPainter.performanceSnapshot
+    }
+
+    public var runtimePerformanceDiagnostics: String {
+        let performance = MothUnicodeTextPainter.performanceSnapshot
+        return String(
+            format: "latency %.2f ms | %@ | %@",
+            hostFrameTimingStats.movingAverageInputToPresentMilliseconds,
+            hostInputStats.statusText,
+            performance.compactStatusText
+        )
+    }
+
+    public mutating func updateHostRuntimeDiagnostics(
+        timingStats: LunaFrameTimingStats,
+        inputStats: LunaInputCoalescingStats
+    ) {
+        hostFrameTimingStats = timingStats
+        hostInputStats = inputStats
+    }
     public var wantsContinuousRendering: Bool { textSelectionInteractionState.wantsContinuousUpdates }
     public var cursorIntent: LunaCursorIntent { currentCursorIntent }
     public var wantsPointerCapture: Bool {

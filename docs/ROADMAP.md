@@ -67,7 +67,7 @@ Delivered:
 
 ### Convergence C2 — Document-owned undo/redo
 
-**Status: implemented in this revision.**
+**Status: complete and accepted.**
 
 Delivered:
 
@@ -182,6 +182,26 @@ C2.2 exit condition:
 > hit testing, wrapping, and painted text agree on shaped insertion positions.
 > Wheel, precise touchpad, Page Up/Page Down, scrollbar paging, and thumb dragging
 > update only the intended pane and never exceed legal wrapped visual rows.
+
+### Convergence C2.3 — Input-to-pixel latency and demo restoration
+
+**Status: implemented in this revision.**
+
+- bounded host polling by raw event count and elapsed monotonic time;
+- presentation between conservative backlog batches;
+- committed-text authority for printable input;
+- adjacent text-event coalescing with semantic ordering barriers;
+- input-to-present, polling, merge, and shaping-cache diagnostics;
+- bounded LRU shaped-layout retention;
+- restored default Luna kitchen-sink demo and 340-row scroll corpus;
+- four new Moth regressions and an expected 115-test total.
+
+C2.3 exit condition:
+
+> Sustained rapid typing and normal OS key repeat cannot build a growing visible
+> backlog. Text and caret appear in the same presented state, semantic events are
+> never reordered or dropped, and the layout cache cannot retain unbounded edited
+> line prefixes.
 
 ### M3A — Document sheets and real tabs
 

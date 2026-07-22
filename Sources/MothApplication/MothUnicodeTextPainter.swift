@@ -33,6 +33,29 @@ public struct MothUnicodeTextDiagnostics: Hashable, Sendable {
     }
 }
 
+public struct MothUnicodeTextPerformanceSnapshot: Hashable, Sendable {
+    public let layoutRequestCount: UInt64
+    public let layoutCacheHitCount: UInt64
+    public let layoutCacheMissCount: UInt64
+    public let shapingNanoseconds: UInt64
+    public let layoutCacheEntryCount: Int
+    public let layoutCacheCost: Int
+
+    public var cacheHitRate: Double {
+        guard layoutRequestCount > 0 else { return 0 }
+        return Double(layoutCacheHitCount) / Double(layoutRequestCount)
+    }
+
+    public var shapingMilliseconds: Double {
+        Double(shapingNanoseconds) / 1_000_000.0
+    }
+
+    public var compactStatusText: String {
+        "shape H\(layoutCacheHitCount)/M\(layoutCacheMissCount) "
+            + String(format: "%.2fms", shapingMilliseconds)
+    }
+}
+
 private struct MothExpandedTextRun: Sendable {
     struct Boundary: Sendable {
         var sourceUTF8Offset: Int
@@ -160,7 +183,7 @@ final class MothUnicodeTextRendererState: @unchecked Sendable {
     private var failureDescription: String?
     private var didLogFailure: Bool
 
-    private static let maximumCacheEntryCount = 256
+    private static let maximumCacheEntryCount = 128
     private static let maximumCacheCost = 2 * 1024 * 1024
     private var expandedRunCache: [MothExpandedTextCacheKey: MothExpandedTextRun] = [:]
     private var expandedRunCacheOrder: [MothExpandedTextCacheKey] = []
@@ -168,6 +191,10 @@ final class MothUnicodeTextRendererState: @unchecked Sendable {
     private var layoutCache: [String: LunaUnicodeTextLayout] = [:]
     private var layoutCacheOrder: [String] = []
     private var layoutCacheCost = 0
+    private var layoutRequestCount: UInt64 = 0
+    private var layoutCacheHitCount: UInt64 = 0
+    private var layoutCacheMissCount: UInt64 = 0
+    private var shapingNanoseconds: UInt64 = 0
 
     init(
         pointSize: Double = 10,
@@ -204,6 +231,28 @@ final class MothUnicodeTextRendererState: @unchecked Sendable {
             pointSize: pointSize,
             failureDescription: failureDescription
         )
+    }
+
+    var performanceSnapshot: MothUnicodeTextPerformanceSnapshot {
+        lock.lock()
+        defer { lock.unlock() }
+        return MothUnicodeTextPerformanceSnapshot(
+            layoutRequestCount: layoutRequestCount,
+            layoutCacheHitCount: layoutCacheHitCount,
+            layoutCacheMissCount: layoutCacheMissCount,
+            shapingNanoseconds: shapingNanoseconds,
+            layoutCacheEntryCount: layoutCache.count,
+            layoutCacheCost: layoutCacheCost
+        )
+    }
+
+    func resetPerformanceCounters() {
+        lock.lock()
+        layoutRequestCount = 0
+        layoutCacheHitCount = 0
+        layoutCacheMissCount = 0
+        shapingNanoseconds = 0
+        lock.unlock()
     }
 
     func monospacedAdvance(fallback: Int) -> Int {
@@ -363,19 +412,30 @@ final class MothUnicodeTextRendererState: @unchecked Sendable {
         renderer activeRenderer: LunaUnicodeTextRenderer
     ) throws -> LunaUnicodeTextLayout {
         lock.lock()
+        layoutRequestCount &+= 1
         if let cached = layoutCache[text] {
+            layoutCacheHitCount &+= 1
+            touchLayoutCacheKey(text)
             lock.unlock()
             return cached
         }
+        layoutCacheMissCount &+= 1
         lock.unlock()
 
+        let startedAt = DispatchTime.now().uptimeNanoseconds
         let layout = try activeRenderer.layout(text)
+        let finishedAt = DispatchTime.now().uptimeNanoseconds
+        let shapeDuration = finishedAt >= startedAt ? finishedAt - startedAt : 0
         let cost = text.utf8.count
             + layout.glyphs.count * MemoryLayout<LunaUnicodeGlyphPlacement>.stride
             + layout.insertionPositions.count * MemoryLayout<LunaUnicodeTextInsertionPosition>.stride
-        guard cost <= Self.maximumCacheCost else { return layout }
 
         lock.lock()
+        shapingNanoseconds &+= shapeDuration
+        guard cost <= Self.maximumCacheCost else {
+            lock.unlock()
+            return layout
+        }
         if renderer === activeRenderer, layoutCache[text] == nil {
             layoutCache[text] = layout
             layoutCacheOrder.append(text)
@@ -385,6 +445,14 @@ final class MothUnicodeTextRendererState: @unchecked Sendable {
         let result = layoutCache[text] ?? layout
         lock.unlock()
         return result
+    }
+
+    private func touchLayoutCacheKey(_ text: String) {
+        guard let index = layoutCacheOrder.firstIndex(of: text),
+              index != layoutCacheOrder.index(before: layoutCacheOrder.endIndex)
+        else { return }
+        layoutCacheOrder.remove(at: index)
+        layoutCacheOrder.append(text)
     }
 
     private func trimExpandedRunCache() {
@@ -484,6 +552,13 @@ enum MothUnicodeTextPainter {
 
     static let geometryProvider = MothUnicodeTextGeometryProvider()
     static var diagnostics: MothUnicodeTextDiagnostics { state.diagnostics }
+    static var performanceSnapshot: MothUnicodeTextPerformanceSnapshot {
+        state.performanceSnapshot
+    }
+
+    static func resetPerformanceCountersForTesting() {
+        state.resetPerformanceCounters()
+    }
 
     private static let shapedCellAdvance = state.monospacedAdvance(fallback: 6)
 

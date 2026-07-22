@@ -258,6 +258,26 @@ C2.2 deliberately does not implement multiple documents or real tabs. New File
 continues to replace the current single document through the protected M2.2B1
 lifecycle until M3A installs document sheets.
 
+### Convergence C2.3 — Input-to-pixel latency and demo restoration
+
+Implemented after graphical C2.2 validation confirmed exact caret geometry but
+exposed visible lag and stutter during rapid typing and OS key repeat:
+
+- LunaHostSDL polls at most 96 raw events or approximately 2 ms before returning
+  control to rendering and presentation;
+- conservative backlog batches resume immediately without an additional pacing sleep;
+- plain printable key-down events defer to authoritative committed text input;
+- adjacent committed text events coalesce into one ordered Moth edit transaction
+  without crossing command, navigation, pointer, resize, or focus barriers;
+- Luna frame timing records input-to-present latency and polling/merge diagnostics;
+- Moth retains bounded LRU shaped-layout entries and exposes cache hit/miss and
+  shaping-time diagnostics without drawing a constantly changing diagnostic string;
+- four new Moth regressions bring the expected total to 115 tests;
+- LunaUITestApp again defaults to the complete kitchen-sink demo, including the
+  animated square and a deterministic 340-row scrolling corpus.
+
+C2.3 does not implement multiple documents. M3A remains the next product slice.
+
 ### Next: M3A — Document sheets and real tabs
 
 The next product slice introduces a Moth-owned document-sheet collection and
@@ -273,6 +293,7 @@ See:
 - [`docs/SUBMODULE_WORKFLOW.md`](docs/SUBMODULE_WORKFLOW.md)
 - [`docs/PAIRED_ITERATION_PROTOCOL.md`](docs/PAIRED_ITERATION_PROTOCOL.md)
 - [`docs/TEXT_GEOMETRY_AND_SCROLLING.md`](docs/TEXT_GEOMETRY_AND_SCROLLING.md)
+- [`docs/INPUT_LATENCY.md`](docs/INPUT_LATENCY.md)
 
 ## Build
 
@@ -336,10 +357,11 @@ fallback usable. Horizontal movement and deletion step across extended grapheme
 clusters.
 
 M2.2B1 replaces decorative menu labels with interactive command surfaces. C2.2
-then makes shaped insertion geometry authoritative for rendering and interaction,
-adds normal pane-local vertical wheel/trackpad scrolling, and makes the scrollbar
-interactive. Ctrl/Cmd+N still safely replaces the single current document for
-now; M3A is the next slice and will introduce real document tabs.
+makes shaped insertion geometry authoritative and adds normal pane-local vertical
+scrolling. C2.3 bounds host polling, batches contiguous committed text, records
+input-to-present latency, and keeps shaped-layout retention bounded. Ctrl/Cmd+N
+still safely replaces the single current document for now; M3A is the next slice
+and will introduce real document tabs.
 
 ## License
 
