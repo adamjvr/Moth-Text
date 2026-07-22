@@ -192,9 +192,9 @@ production document text through Luna's ASCII-only debug bitmap renderer:
   than Unicode bullet characters;
 - focused regressions cover accented text and visible dirty-state geometry.
 
-C2.1 deliberately does not implement Ctrl+N, multiple documents, real tabs, or
-folder-row activation. Ctrl+N remains M2.2B command scope; real documents/tabs and
-project navigation remain M3 workspace scope.
+C2.1 deliberately did not implement Ctrl+N, multiple documents, real tabs, or
+folder-row activation. Ctrl/Cmd+N is now implemented by M2.2B1; real documents,
+tabs, and project navigation remain M3 workspace scope.
 
 C2.1 is now graphically accepted at this repository head. The 74-test C2.1
 baseline and plugin-host IPC smoke test passed on Linux before Stabilization S1.
@@ -210,13 +210,34 @@ Implemented in this revision:
 - one-time renderer failure logging rather than silent degradation;
 - extended-grapheme navigation, selection, Backspace, and Delete behavior;
 - regression coverage for decomposed accents through editor, history, and application paths;
-- an expanded expected automated total of 86 tests, up from the accepted 74-test C2.1 baseline.
+- an expanded accepted automated total of 86 tests, up from the 74-test C2.1 baseline.
 
-### Next: M2.2B — Command and visible find convergence
+### M2.2B1 — Unified command authority and New File
 
-The next product slice connects Moth's typed command authority to Luna menus,
-shortcuts, quick panels, and visible find/replace presentation. It also begins
-external-change reload/conflict presentation and recent-file/session groundwork.
+Implemented in this revision:
+
+- stable `moth.*` command identifiers backed by Luna's product-neutral command runtime;
+- one availability and execution path shared by keyboard shortcuts, real menu rows,
+  the command palette, and programmatic tests;
+- dynamic Save, Undo, Redo, and Select All availability;
+- real Luna menu-bar/dropdown interaction replacing decorative menu text;
+- a visible, searchable Luna command palette opened with Ctrl/Cmd+Shift+P, with Escape returning input to the editor;
+- Ctrl/Cmd+N New File with Save / Don't Save / Cancel protection;
+- fresh document, buffer, history, and view identities after New File while the
+  current pane geometry is preserved;
+- Open, Save, Save As, Undo, Redo, Select All, and pane traversal routed through
+  the same command dispatcher;
+- disabled Find presentation that preserves Ctrl/Cmd+F for M2.2B2 without
+  inserting shortcut text into the document;
+- 17 new command regressions, bringing the expected Moth total to 103 tests.
+
+See [`docs/COMMANDS.md`](docs/COMMANDS.md) for the command contract.
+
+### Next: M2.2B2 — Visible Find/Replace convergence
+
+The next product slice connects Luna's visible find/replace panel to Moth's
+history-aware find session. Find Next, Find Previous, Replace, and Replace All
+will use the same command authority, with Replace All retained as one Undo unit.
 
 See:
 
@@ -239,6 +260,12 @@ Then run the complete local equivalent of the GitHub Actions gate:
 
 ```bash
 ./scripts/validate-paired-iteration.sh
+```
+
+For the focused M2.2B1 command suite:
+
+```bash
+swift test --filter MothCommandSystemTests
 ```
 
 For the shorter bootstrap-only path:
@@ -278,9 +305,13 @@ state, dirty state, active pane, and retained Undo/Redo group counts in the stat
 bar. C2.1 paints document and user-facing text through LunaTextRender and uses
 geometry for dirty/active indicators. S1 reports Unicode-renderer failure in that
 status bar, logs the retained error once, and keeps the visible ASCII diagnostic
-fallback usable. Horizontal movement and deletion now step across extended
-grapheme clusters. The visible Edit menu remains presentation-only; unified
-command/menu/palette routing is deferred to M2.2B.
+fallback usable. Horizontal movement and deletion step across extended grapheme
+clusters.
+
+M2.2B1 replaces the decorative menu labels with an interactive Luna menu bar and
+adds the visible command palette. Keyboard, menu, palette, and tests invoke the
+same Moth command IDs and availability rules. Ctrl/Cmd+N safely replaces the
+single current document for now; real multiple-document tabs remain M3 scope.
 
 ## License
 

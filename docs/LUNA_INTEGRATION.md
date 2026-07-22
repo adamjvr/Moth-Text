@@ -136,3 +136,23 @@ The validation gate also runs `MothTextLinux --headless-smoke`. This renders one
 frame without opening SDL, requires the Unicode renderer to remain active, and
 fails when font discovery, HarfBuzz shaping, FreeType rasterization, or framebuffer
 painting falls back to the ASCII diagnostic path.
+
+## M2.2B1 command compatibility point
+
+M2.2B1 requires only Luna APIs already present in the pinned framework revision:
+
+- `LunaCommandID`, descriptors, contexts, availability, and execution results;
+- `LunaCommandRuntime` and key-binding matching;
+- `LunaKeyboardEvent.lunaCommandKeyStroke` and shortcut suppression hints;
+- `LunaMenuBar` model, layout, interaction, and accessibility;
+- `LunaQuickPanel` filtering, interaction, layout, and accessibility.
+
+Moth declares stable `moth.*` command IDs, owns availability and handlers, and
+renders product text through `MothUnicodeTextPainter`. Integration exposed one
+small reusable Luna defect: disabled quick-panel items disappeared from nonempty
+searches. Luna now keeps matching disabled items discoverable while retaining
+their disabled metadata, allowing products to explain why a command is currently
+unavailable without making it vanish.
+
+M2.2B2 will reuse the existing Luna find-panel presentation. Further Luna changes
+remain demand-driven and must represent genuinely reusable seams.

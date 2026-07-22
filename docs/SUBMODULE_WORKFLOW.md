@@ -33,3 +33,13 @@ GitHub Actions checks out the committed gitlink. Local paired validation checks 
 index gitlink so a newly advanced Luna revision can be tested before the Moth commit
 exists. If validation reports a mismatch after `update-luna.sh`, stage only the
 gitlink with `git add Dependencies/Luna-UI` and rerun validation.
+
+## M2.2B1 Luna checkpoint
+
+M2.2B1 advances the Luna gitlink for one reusable quick-panel correction plus
+permanent checkpoint documentation. Matching disabled commands remain searchable
+so Moth can present an unavailable command and its reason instead of returning an
+empty palette result.
+
+Commit and push the validated Luna revision first. Then run
+`./scripts/update-luna.sh`, stage only the gitlink, and validate Moth normally.

@@ -217,7 +217,8 @@ It remains headless and Luna-free.
 - composes Moth and Luna;
 - maps pane IDs to Moth views;
 - routes Luna pointer/keyboard/text input into Moth actions;
-- provides direct C2 keyboard routing while unified command routing remains later;
+- owns stable Moth command IDs, availability, context projection, and execution;
+- projects those commands into Luna menus, key bindings, and quick panels;
 - preserves thin platform executable boundaries.
 
 ### MothIPC and MothPluginHost
@@ -278,3 +279,38 @@ the same repository gate. Validation checks native dependencies, the exact stage
 Luna gitlink, a clean Luna submodule, every SwiftPM build/test product, a headless
 Unicode render bootstrap, and the plugin-host IPC smoke test. The graphical window
 remains a separate manual acceptance gate.
+
+## M2.2B1 command authority boundary
+
+Moth composes Luna's product-neutral command runtime rather than duplicating it:
+
+```text
+MothCommandID constants
+        |
+        v
+LunaCommandRuntime<MothApplicationShellScene>
+        |
+        +--> key binding lookup
+        +--> menu surface projection
+        +--> command-palette projection
+        +--> availability query
+        +--> one Moth handler
+```
+
+`MothCommandSystem` declares the stable IDs and descriptors. The application scene
+supplies dynamic availability and performs all file/editor mutations. Luna does
+not know what New File, Save, Undo, or Select All means for Moth.
+
+`LunaCommandContext` carries source, current document identity, focused surface,
+and active pane identity. It is targeting metadata, not a container for product
+objects. Document, buffer, history, and view ownership remain in Moth.
+
+New File is intentionally a single-document replacement before M3. It reuses the
+existing dirty-document decision path, creates fresh product identities, resets
+view state, and preserves the Luna pane tree. Real tab/document targeting waits
+for the M3 workspace model.
+
+A command invocation from a disabled binding is consumed and reported without
+mutation. This is required because host text input can otherwise commit the
+physical shortcut letter after the keyboard event. Matching disabled quick-panel
+items remain searchable, preserving discoverability and the product-owned reason.

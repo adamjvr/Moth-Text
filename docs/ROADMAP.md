@@ -118,13 +118,13 @@ Exit condition:
 
 Deferred:
 
-- Ctrl/Cmd+N: M2.2B command routing;
+- Ctrl/Cmd+N: completed in M2.2B1 through the unified command runtime;
 - real tabs, multiple open documents, clickable Open Files rows, and folders: M3;
 - complete bidi/script segmentation and multi-font fallback: later LunaText work.
 
 ### Stabilization S1 — Paired CI, diagnostics, and grapheme boundaries
 
-**Status: implemented in this revision; first clean GitHub Actions run required.**
+**Status: complete and accepted.**
 
 - Ubuntu CI for Luna and Moth;
 - recursive submodule checkout plus exact staged-gitlink verification;
@@ -133,7 +133,7 @@ Deferred:
 - visible and logged Unicode diagnostic fallback state;
 - extended-grapheme horizontal navigation and deletion;
 - regression tests for decomposed accents across editor, history, and shell input;
-- 86 expected tests after the 12 new stabilization regressions are added.
+- 86 accepted tests after the 12 stabilization regressions were added.
 
 S1 exit condition:
 
@@ -141,17 +141,43 @@ S1 exit condition:
 > commits, Moth verifies the exact Luna gitlink, the headless Unicode render smoke
 > passes without fallback, and grapheme editing regressions remain green.
 
-### M2.2B — Command and visible find convergence
+### M2.2B1 — Unified command authority and New File
+
+**Status: implemented in this revision.**
+
+- stable namespaced Moth command IDs;
+- Luna command runtime reused without moving product policy into Luna;
+- one availability/execution route for keyboard, menu, command palette, and tests;
+- real menu-bar and dropdown interaction;
+- searchable command palette;
+- New File with Save / Don't Save / Cancel protection;
+- Open, Save, Save As, Undo, Redo, Select All, and pane traversal convergence;
+- visible disabled Find command reserving the M2.2B2 route;
+- 17 command regressions and 103 expected total tests.
+
+M2.2B1 exit condition:
+
+> Every implemented product command has one stable ID, one availability rule, and
+> one execution handler regardless of initiating surface. New File cannot discard
+> dirty content without an explicit decision, and failed/cancelled Save As leaves
+> the current document intact.
+
+### M2.2B2 — Visible Find/Replace convergence
 
 **Next.**
 
-- typed Moth command IDs and command availability;
-- one command path shared by keyboard, menus, command palette, and context menus;
 - visible Luna find/replace panel backed by history-aware Moth mutation;
-- Undo/Redo menu and palette presentation;
-- fuller keyboard-navigation command coverage;
+- Find Next and Find Previous command routing;
+- Replace and Replace All command routing;
+- Replace All retained as one Undo group;
+- overlay focus ownership and Escape return to the active editor pane;
+- keyboard, menu, palette, and panel actions sharing the M2.2B1 command authority.
+
+### M2.2B3 — External-change and session groundwork
+
 - external-change reload/conflict presentation;
-- recent-file/session groundwork.
+- recent-file model;
+- first session metadata schema before M3 document sheets.
 
 ## M3 — Workspace fundamentals
 

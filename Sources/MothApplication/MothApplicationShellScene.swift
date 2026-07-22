@@ -8,10 +8,12 @@
 // editor-view state.
 
 import Foundation
+import LunaCommands
 import LunaCore
 import LunaHostCore
 import LunaInput
 import LunaRender
+import LunaTheme
 import LunaUI
 import MothEditor
 import MothTextCore
@@ -30,6 +32,8 @@ public struct MothApplicationShellScene {
     public private(set) var secondaryView: MothEditorViewState
     public private(set) var paneWorkspace: LunaPaneWorkspaceState
     public private(set) var statusMessage: String
+    public private(set) var lastCommandID: LunaCommandID?
+    public private(set) var lastCommandSource: String?
 
     private var documentController: MothDocumentController<MothLocalDocumentFileAccess>
     private var dialogService: any LunaDialogService
@@ -37,6 +41,9 @@ public struct MothApplicationShellScene {
     private var paneInteractionState: LunaPaneContainerInteractionState
     private var textSelectionInteractionState: LunaTextSelectionInteractionState
     private var currentCursorIntent: LunaCursorIntent
+    private var commandRuntime: LunaCommandRuntime<MothApplicationShellScene>
+    private var menuBarState: LunaMenuBarState
+    private var commandPaletteState: LunaQuickPanelState?
 
     public init(
         initialSize: LunaSizeI = LunaSizeI(width: 1100, height: 720),
@@ -68,6 +75,11 @@ public struct MothApplicationShellScene {
         self.paneInteractionState = LunaPaneContainerInteractionState()
         self.textSelectionInteractionState = LunaTextSelectionInteractionState()
         self.currentCursorIntent = .arrow
+        self.commandRuntime = MothCommandSystem.makeRuntime()
+        self.menuBarState = LunaMenuBarState()
+        self.commandPaletteState = nil
+        self.lastCommandID = nil
+        self.lastCommandSource = nil
         self.statusMessage = document.snapshot().isUntitled
             ? "Untitled document — Ctrl+Shift+S to Save As"
             : "Opened \(document.snapshot().displayPath)"
@@ -110,6 +122,36 @@ public struct MothApplicationShellScene {
         paneInteractionState.wantsPointerCapture || textSelectionInteractionState.wantsPointerCapture
     }
     public var bufferSnapshot: MothSourceBufferSnapshot { buffer.snapshot() }
+    public var commandDescriptors: [LunaCommandDescriptor] { commandRuntime.descriptors }
+    public var isMenuOpen: Bool { menuBarState.isOpen }
+    public var isCommandPaletteOpen: Bool { commandPaletteState != nil }
+    public var commandPaletteQuery: String? { commandPaletteState?.query }
+
+    public func commandAvailability(
+        for command: LunaCommandID,
+        source: String = "programmatic"
+    ) -> LunaCommandAvailability {
+        commandRuntime.availability(
+            for: command,
+            host: self,
+            context: commandContext(source: source)
+        )
+    }
+
+    @discardableResult
+    public mutating func executeCommand(
+        _ command: LunaCommandID,
+        source: String = "programmatic"
+    ) -> LunaCommandExecutionResult {
+        let runtime = commandRuntime
+        let result = runtime.execute(
+            command,
+            host: &self,
+            context: commandContext(source: source)
+        )
+        applyCommandResult(result, command: command, source: source)
+        return result
+    }
 
     public mutating func openDocument(at url: URL) throws {
         document.history.breakCoalescing()
@@ -197,6 +239,8 @@ public struct MothApplicationShellScene {
             textSelectionInteractionState.cancel()
             document.history.breakCoalescing()
             currentCursorIntent = .arrow
+            menuBarState.close()
+            commandPaletteState = nil
             statusMessage = "Pointer selection/resize cancelled after capture loss"
             return LunaFrameInvalidationSet(.input)
 
@@ -217,6 +261,14 @@ public struct MothApplicationShellScene {
                 return LunaFrameInvalidationSet(.input)
             }
             suppressedTextInput = nil
+            if var palette = commandPaletteState {
+                let result = palette.handleTextInput(textInput)
+                commandPaletteState = palette
+                if result.didConsumeEvent {
+                    currentCursorIntent = .arrow
+                    return LunaFrameInvalidationSet(.input)
+                }
+            }
             if let result = performActiveInsert(textInput.text) {
                 statusMessage = result.displayName
             }
@@ -271,6 +323,8 @@ public struct MothApplicationShellScene {
             height: contentHeight,
             accent: activeAccent
         )
+        drawMenuSurface(into: &framebuffer)
+        drawCommandPalette(into: &framebuffer)
     }
 
     // MARK: - Pane integration
@@ -335,6 +389,7 @@ public struct MothApplicationShellScene {
     }
 
     private func resolvedCursorIntent(at point: LunaPointI) -> LunaCursorIntent {
+        if commandPaletteState != nil || menuBarState.isOpen { return .arrow }
         if textSelectionInteractionState.isSelecting { return .text }
         let container = paneContainer()
         if let dividerIntent = container.cursorIntent(at: point) {
@@ -349,6 +404,9 @@ public struct MothApplicationShellScene {
     }
 
     private mutating func handlePointer(_ event: LunaPointerEvent) {
+        if handleCommandPalettePointer(event) { return }
+        if handleMenuPointer(event) { return }
+
         if event.phase == .down { pointerAccentIsActive.toggle() }
 
         let wasDraggingDivider = paneInteractionState.isDraggingDivider
@@ -490,10 +548,279 @@ public struct MothApplicationShellScene {
         secondaryView.viewport.firstVisibleVisualRow = nil
     }
 
+    // MARK: - Command surfaces
+
+    private func menuBar() -> LunaMenuBar {
+        LunaMenuBar(
+            id: LunaNodeID(rawValue: "moth.menuBar"),
+            bounds: LunaRectI(
+                x: 96,
+                y: 0,
+                w: max(0, framebufferSize.width - 96),
+                h: min(30, framebufferSize.height)
+            ),
+            menus: commandMenus(),
+            state: menuBarState,
+            theme: MothApplicationTheme.theme,
+            metrics: LunaMenuBarMetrics(
+                barHeight: 30,
+                topLevelHorizontalPadding: 9,
+                dropdownMinWidth: 224,
+                dropdownMaxWidth: 340,
+                dropdownPadding: 5,
+                rowHeight: 26,
+                separatorHeight: 7,
+                rowHorizontalPadding: 10,
+                shortcutColumnWidth: 96,
+                submenuGap: 2,
+                textScale: 1,
+                glyphMetrics: MothUnicodeTextPainter.editorMetrics.glyphMetrics
+            )
+        )
+    }
+
+    private func commandMenus() -> [LunaMenuDefinition] {
+        [
+            LunaMenuDefinition(
+                id: "file",
+                title: "File",
+                items: [
+                    menuItem(for: MothCommandID.newFile),
+                    menuItem(for: MothCommandID.openFile),
+                    .separator(id: "file.separator.save"),
+                    menuItem(for: MothCommandID.save),
+                    menuItem(for: MothCommandID.saveAs),
+                ]
+            ),
+            LunaMenuDefinition(
+                id: "edit",
+                title: "Edit",
+                items: [
+                    menuItem(for: MothCommandID.undo),
+                    menuItem(for: MothCommandID.redo),
+                ]
+            ),
+            LunaMenuDefinition(
+                id: "selection",
+                title: "Selection",
+                items: [menuItem(for: MothCommandID.selectAll)]
+            ),
+            LunaMenuDefinition(
+                id: "find",
+                title: "Find",
+                items: [menuItem(for: MothCommandID.showFind)]
+            ),
+            LunaMenuDefinition(
+                id: "view",
+                title: "View",
+                items: [
+                    menuItem(for: MothCommandID.nextPane),
+                    menuItem(for: MothCommandID.previousPane),
+                ]
+            ),
+            LunaMenuDefinition(
+                id: "goto",
+                title: "Goto",
+                items: [
+                    LunaMenuItem(
+                        id: "goto.pending",
+                        title: "Goto commands arrive with M3",
+                        isEnabled: false
+                    ),
+                ]
+            ),
+            LunaMenuDefinition(
+                id: "tools",
+                title: "Tools",
+                items: [menuItem(for: MothCommandID.showCommandPalette)]
+            ),
+        ]
+    }
+
+    private func menuItem(for command: LunaCommandID) -> LunaMenuItem {
+        let context = commandContext(source: "menu")
+        guard let item = commandRuntime.surfaceItem(for: command, host: self, context: context) else {
+            return LunaMenuItem(
+                id: "missing.\(command.rawValue)",
+                title: command.rawValue,
+                isEnabled: false
+            )
+        }
+        return .command(
+            id: item.id.rawValue,
+            title: item.title,
+            command: item.id,
+            keyEquivalent: item.keyEquivalent,
+            isEnabled: item.isEnabled,
+            isChecked: item.isChecked,
+            accessibilityLabel: item.disabledReason.map { "\(item.accessibilityLabel). \($0)" }
+                ?? item.accessibilityLabel
+        )
+    }
+
+    private mutating func handleMenuPointer(_ event: LunaPointerEvent) -> Bool {
+        let bar = menuBar()
+        var state = menuBarState
+        let result = bar.handlePointerEvent(event, state: &state)
+        menuBarState = state
+        guard result.didConsumeEvent else { return false }
+        currentCursorIntent = .arrow
+        if let command = result.requestedCommand {
+            _ = executeCommand(command, source: "menu")
+        }
+        return true
+    }
+
+    private mutating func handleMenuKeyboard(_ event: LunaKeyboardEvent) -> Bool {
+        guard menuBarState.isOpen else { return false }
+        let bar = menuBar()
+        var state = menuBarState
+        let result = bar.handleKeyboardEvent(event, state: &state)
+        menuBarState = state
+        guard result.didConsumeEvent else { return false }
+        currentCursorIntent = .arrow
+        if let command = result.requestedCommand {
+            _ = executeCommand(command, source: "menu")
+        }
+        return true
+    }
+
+    private mutating func openCommandPalette() {
+        menuBarState.close()
+        commandPaletteState = LunaQuickPanelState(items: commandPaletteItems())
+        currentCursorIntent = .arrow
+    }
+
+    private func commandPaletteItems() -> [LunaQuickPanelItem] {
+        let context = commandContext(source: "palette")
+        return commandRuntime.registry.paletteVisible.compactMap { descriptor in
+            let availability = commandRuntime.availability(
+                for: descriptor.id,
+                host: self,
+                context: context
+            )
+            guard availability.isVisible else { return nil }
+            let path = descriptor.menuPath.joined(separator: " › ")
+            let subtitleParts = [
+                path.isEmpty ? nil : path,
+                availability.disabledReason,
+            ].compactMap { $0 }
+            return LunaQuickPanelItem(
+                id: LunaNodeID(rawValue: "moth.command.\(descriptor.id.rawValue)"),
+                title: availability.titleOverride ?? descriptor.title,
+                subtitle: subtitleParts.isEmpty ? descriptor.id.rawValue : subtitleParts.joined(separator: " — "),
+                command: descriptor.id,
+                isEnabled: availability.isEnabled
+            )
+        }
+    }
+
+    private func commandPalette() -> LunaQuickPanel? {
+        guard let commandPaletteState else { return nil }
+        return LunaQuickPanel(
+            id: LunaNodeID(rawValue: "moth.commandPalette"),
+            bounds: LunaRectI(
+                x: 0,
+                y: 0,
+                w: framebufferSize.width,
+                h: framebufferSize.height
+            ),
+            title: "Moth Command Palette",
+            placeholder: "Type a command…",
+            state: commandPaletteState,
+            theme: MothApplicationTheme.theme,
+            metrics: LunaQuickPanelMetrics(
+                maxPanelWidth: 680,
+                minPanelWidth: 300,
+                topMargin: 64,
+                sideMargin: 18,
+                panelPadding: 10,
+                titleHeight: 26,
+                inputHeight: 30,
+                rowHeight: 36,
+                rowGap: 2,
+                maxVisibleRows: 10,
+                textScale: 1,
+                titleScale: 1,
+                glyphMetrics: MothUnicodeTextPainter.editorMetrics.glyphMetrics
+            )
+        )
+    }
+
+    private mutating func handleCommandPaletteKeyboard(_ event: LunaKeyboardEvent) -> Bool {
+        guard var state = commandPaletteState else { return false }
+        let result = state.handleKeyboardEvent(event)
+        guard result.didConsumeEvent else {
+            commandPaletteState = state
+            return false
+        }
+        currentCursorIntent = .arrow
+
+        if let command = result.requestedCommand {
+            let availability = commandRuntime.availability(
+                for: command,
+                host: self,
+                context: commandContext(source: "palette")
+            )
+            guard availability.isEnabled else {
+                commandPaletteState = state
+                lastCommandID = command
+                lastCommandSource = "palette"
+                statusMessage = availability.disabledReason ?? "Command unavailable"
+                return true
+            }
+            commandPaletteState = nil
+            _ = executeCommand(command, source: "palette")
+            return true
+        }
+
+        commandPaletteState = result.didDismiss ? nil : state
+        return true
+    }
+
+    private mutating func handleCommandPalettePointer(_ event: LunaPointerEvent) -> Bool {
+        guard var state = commandPaletteState, let panel = commandPalette() else { return false }
+        currentCursorIntent = .arrow
+        guard event.phase == .down else { return true }
+
+        let layout = panel.layout()
+        if let row = layout.rows.first(where: { $0.bounds.contains(x: event.location.x, y: event.location.y) }) {
+            let result = state.selectOriginalIndex(row.match.originalIndex)
+            guard let command = result.requestedCommand else {
+                commandPaletteState = result.didDismiss ? nil : state
+                return true
+            }
+
+            let availability = commandRuntime.availability(
+                for: command,
+                host: self,
+                context: commandContext(source: "palette")
+            )
+            if availability.isEnabled {
+                commandPaletteState = nil
+                _ = executeCommand(command, source: "palette")
+            } else {
+                commandPaletteState = state
+                lastCommandID = command
+                lastCommandSource = "palette"
+                statusMessage = availability.disabledReason ?? "Command unavailable"
+            }
+            return true
+        }
+
+        if !layout.panelBounds.contains(x: event.location.x, y: event.location.y) {
+            commandPaletteState = nil
+            statusMessage = "Command Palette dismissed"
+        }
+        return true
+    }
+
     // MARK: - Editing and commands
 
     private mutating func handleKeyboard(_ event: LunaKeyboardEvent) {
-        if handleApplicationShortcut(event) { return }
+        if handleCommandPaletteKeyboard(event) { return }
+        if handleMenuKeyboard(event) { return }
+        if handleCommandShortcut(event) { return }
         let snapshot = buffer.snapshot()
 
         switch event.key {
@@ -568,54 +895,163 @@ public struct MothApplicationShellScene {
         }
     }
 
-    private mutating func handleApplicationShortcut(_ event: LunaKeyboardEvent) -> Bool {
-        guard event.modifiers.control || event.modifiers.command else { return false }
+    private mutating func handleCommandShortcut(_ event: LunaKeyboardEvent) -> Bool {
+        let context = commandContext(source: "keyboard")
+        let candidates = commandRuntime.keyBindings.commands(
+            matching: event.lunaCommandKeyStroke,
+            context: context
+        )
+        guard let command = candidates.first else { return false }
 
-        if event.key == .tab {
-            document.history.breakCoalescing()
-            _ = paneWorkspace.traverse(event.modifiers.shift ? .previous : .next, layout: paneLayout())
+        suppressedTextInput = event.lunaShortcutTextInputSuppressionCandidate
+        let availability = commandRuntime.availability(for: command, host: self, context: context)
+        guard availability.isVisible && availability.isEnabled else {
+            lastCommandID = command
+            lastCommandSource = "keyboard"
+            statusMessage = availability.disabledReason ?? "Command unavailable"
             return true
         }
 
-        guard case .other(let rawKey) = event.key else { return false }
-        let key = rawKey.lowercased()
+        _ = executeCommand(command, source: "keyboard")
+        return true
+    }
 
-        switch key {
-        case "z":
-            suppressedTextInput = key
-            if event.modifiers.shift {
-                _ = redoDocument()
-            } else {
-                _ = undoDocument()
-            }
-            return true
-        case "y":
-            suppressedTextInput = key
-            _ = redoDocument()
-            return true
-        case "o":
-            suppressedTextInput = key
-            document.history.breakCoalescing()
-            requestOpenDocument()
-            return true
-        case "s":
-            suppressedTextInput = key
-            document.history.breakCoalescing()
-            if event.modifiers.shift {
-                _ = requestSaveDocumentAs()
-            } else if document.snapshot().isUntitled {
-                _ = requestSaveDocumentAs()
-            } else {
-                do {
-                    _ = try saveDocument()
-                } catch {
-                    statusMessage = error.localizedDescription
-                }
-            }
-            return true
+    func registeredCommandAvailability(
+        _ command: LunaCommandID,
+        context: LunaCommandContext
+    ) -> LunaCommandAvailability {
+        let snapshot = document.snapshot()
+        let history = document.history.status()
+
+        switch command {
+        case MothCommandID.newFile, MothCommandID.openFile,
+             MothCommandID.saveAs, MothCommandID.nextPane,
+             MothCommandID.previousPane, MothCommandID.showCommandPalette:
+            return .enabled
+        case MothCommandID.save:
+            return snapshot.isUntitled || snapshot.isDirty
+                ? .enabled
+                : .disabled("Document is already saved")
+        case MothCommandID.undo:
+            return history.canUndo ? .enabled : .disabled("Nothing to Undo")
+        case MothCommandID.redo:
+            return history.canRedo ? .enabled : .disabled("Nothing to Redo")
+        case MothCommandID.selectAll:
+            return snapshot.buffer.utf8Count > 0
+                ? .enabled
+                : .disabled("Document is empty")
+        case MothCommandID.showFind:
+            return .disabled("Visible Find/Replace is planned for M2.2B2")
         default:
+            return .disabled("Unknown Moth command")
+        }
+    }
+
+    mutating func performRegisteredCommand(
+        _ command: LunaCommandID,
+        context: LunaCommandContext
+    ) -> LunaCommandExecutionResult {
+        document.history.breakCoalescing()
+        textSelectionInteractionState.cancel()
+        paneInteractionState.cancelDrag()
+
+        switch command {
+        case MothCommandID.newFile:
+            return createNewUntitledDocument()
+                ? .handled("New untitled document")
+                : .unhandled(statusMessage)
+        case MothCommandID.openFile:
+            requestOpenDocument()
+            return .handled(statusMessage)
+        case MothCommandID.save:
+            if document.snapshot().isUntitled {
+                return requestSaveDocumentAs()
+                    ? .handled(statusMessage)
+                    : .unhandled(statusMessage)
+            }
+            do {
+                _ = try saveDocument()
+                return .handled(statusMessage)
+            } catch {
+                return .unhandled(error.localizedDescription)
+            }
+        case MothCommandID.saveAs:
+            return requestSaveDocumentAs()
+                ? .handled(statusMessage)
+                : .unhandled(statusMessage)
+        case MothCommandID.undo:
+            guard let result = undoDocument() else { return .unhandled(statusMessage) }
+            return .handled("Undo: \(result.displayName)")
+        case MothCommandID.redo:
+            guard let result = redoDocument() else { return .unhandled(statusMessage) }
+            return .handled("Redo: \(result.displayName)")
+        case MothCommandID.selectAll:
+            selectAllInActiveView()
+            return .handled("Selected entire document")
+        case MothCommandID.nextPane:
+            _ = paneWorkspace.traverse(.next, layout: paneLayout())
+            return .handled("Active pane: \(paneWorkspace.activePaneID.rawValue)")
+        case MothCommandID.previousPane:
+            _ = paneWorkspace.traverse(.previous, layout: paneLayout())
+            return .handled("Active pane: \(paneWorkspace.activePaneID.rawValue)")
+        case MothCommandID.showCommandPalette:
+            openCommandPalette()
+            return .handled("Command Palette")
+        case MothCommandID.showFind:
+            return .unhandled("Visible Find/Replace is planned for M2.2B2")
+        default:
+            return .unhandled("Unknown Moth command: \(command.rawValue)")
+        }
+    }
+
+    private func commandContext(source: String) -> LunaCommandContext {
+        LunaCommandContext(
+            focusedSurface: commandPaletteState == nil ? "editor" : "commandPalette",
+            activeDocumentID: document.snapshot().id.description,
+            source: source,
+            attributes: [
+                LunaCommandContextAttributeKey.activePaneID: paneWorkspace.activePaneID.rawValue,
+            ]
+        )
+    }
+
+    private mutating func applyCommandResult(
+        _ result: LunaCommandExecutionResult,
+        command: LunaCommandID,
+        source: String
+    ) {
+        lastCommandID = command
+        lastCommandSource = source
+        if let message = result.statusMessage {
+            statusMessage = message
+        }
+        if let followUp = result.followUpCommand, followUp != command {
+            _ = executeCommand(followUp, source: "followUp")
+        }
+    }
+
+    private mutating func createNewUntitledDocument() -> Bool {
+        guard prepareToReplaceOrCloseCurrentDocument(source: "moth.command.new") else {
             return false
         }
+        install(document: MothFileDocument(untitledText: "", displayName: "untitled.txt"))
+        menuBarState.close()
+        commandPaletteState = nil
+        currentCursorIntent = .arrow
+        statusMessage = "New untitled document"
+        return true
+    }
+
+    private mutating func selectAllInActiveView() {
+        let count = buffer.snapshot().utf8Count
+        mutateActiveView { view in
+            view.setSelection(
+                anchor: .zero,
+                focus: MothTextOffset(rawValue: count)
+            )
+            view.preferredUTF8Column = nil
+        }
+        ensureActiveCaretVisible()
     }
 
     private mutating func performActiveInsert(_ text: String) -> MothHistoryActionResult? {
@@ -913,14 +1349,6 @@ public struct MothApplicationShellScene {
             color: palette.text,
             into: &framebuffer
         )
-        MothUnicodeTextPainter.draw(
-            "File  Edit  Selection  Find  View  Goto  Tools",
-            atX: 105,
-            y: 9,
-            color: palette.mutedText,
-            into: &framebuffer
-        )
-
         let documentSnapshot = document.snapshot()
         let titleX: Int
         if documentSnapshot.isDirty {
@@ -964,6 +1392,150 @@ public struct MothApplicationShellScene {
         )
     }
 
+    private func drawMenuSurface(into framebuffer: inout LunaFramebuffer) {
+        let bar = menuBar()
+        var displayList = LunaDisplayList()
+        bar.buildDisplayList(into: &displayList)
+        LunaCPURenderer().render(displayList: displayList, into: &framebuffer)
+
+        let layout = bar.layout()
+        let theme = MothApplicationTheme.theme
+        for top in layout.topLevelFrames {
+            let isActive = bar.state.activeMenuIndex == top.index
+            let color = isActive
+                ? theme.ui.chrome.menuBarActiveForeground.asRenderColor
+                : theme.ui.chrome.menuBarForeground.asRenderColor
+            MothUnicodeTextPainter.draw(
+                top.title,
+                atX: top.bounds.x + 8,
+                y: top.bounds.y + 9,
+                color: color,
+                maximumWidth: max(0, top.bounds.w - 16),
+                into: &framebuffer
+            )
+        }
+
+        for dropdown in layout.dropdowns {
+            for row in dropdown.rows where !row.item.isSeparator {
+                let highlighted = bar.state.highlightedPath == row.path
+                let titleColor: LunaRender.LunaRGBA8
+                if !row.item.isEnabled {
+                    titleColor = theme.ui.menu.rowDisabledForeground.asRenderColor
+                } else if highlighted {
+                    titleColor = theme.ui.menu.rowHoveredForeground.asRenderColor
+                } else {
+                    titleColor = theme.ui.menu.rowForeground.asRenderColor
+                }
+                let shortcutColor = row.item.isEnabled
+                    ? theme.ui.menu.shortcutForeground.asRenderColor
+                    : theme.ui.menu.rowDisabledForeground.asRenderColor
+
+                if row.item.isChecked {
+                    MothUnicodeTextPainter.draw(
+                        "*",
+                        atX: row.bounds.x + 8,
+                        y: row.titleBounds.y + 5,
+                        color: theme.ui.menu.checkedMark.asRenderColor,
+                        into: &framebuffer
+                    )
+                }
+                MothUnicodeTextPainter.draw(
+                    row.item.title,
+                    atX: row.titleBounds.x,
+                    y: row.titleBounds.y + 5,
+                    color: titleColor,
+                    maximumWidth: row.titleBounds.w,
+                    into: &framebuffer
+                )
+                if let shortcut = row.item.keyEquivalent?.lunaMenuDisplayString {
+                    MothUnicodeTextPainter.draw(
+                        shortcut,
+                        atX: row.shortcutBounds.x,
+                        y: row.shortcutBounds.y + 5,
+                        color: shortcutColor,
+                        maximumWidth: row.shortcutBounds.w,
+                        into: &framebuffer
+                    )
+                }
+            }
+        }
+    }
+
+    private func drawCommandPalette(into framebuffer: inout LunaFramebuffer) {
+        guard let panel = commandPalette() else { return }
+        var displayList = LunaDisplayList()
+        panel.buildDisplayList(into: &displayList)
+        LunaCPURenderer().render(displayList: displayList, into: &framebuffer)
+
+        let theme = MothApplicationTheme.theme
+        let text = panel.textLayout()
+        MothUnicodeTextPainter.draw(
+            text.title.text,
+            atX: text.title.bounds.x,
+            y: text.title.bounds.y + 5,
+            color: theme.ui.panel.titleForeground.asRenderColor,
+            maximumWidth: text.title.bounds.w,
+            into: &framebuffer
+        )
+        let queryColor = panel.state.query.isEmpty
+            ? theme.ui.textField.placeholderForeground.asRenderColor
+            : theme.ui.textField.foreground.asRenderColor
+        MothUnicodeTextPainter.draw(
+            text.query.text,
+            atX: text.query.bounds.x,
+            y: text.query.bounds.y + 5,
+            color: queryColor,
+            maximumWidth: text.query.bounds.w,
+            into: &framebuffer
+        )
+
+        let rowItems = Dictionary(uniqueKeysWithValues: panel.layout().rows.map { ($0.nodeID, $0.match.item) })
+        for row in text.rows {
+            let item = rowItems[row.nodeID]
+            let enabled = item?.isEnabled ?? true
+            let titleColor: LunaRender.LunaRGBA8
+            let subtitleColor: LunaRender.LunaRGBA8
+            if !enabled {
+                titleColor = theme.ui.menu.rowDisabledForeground.asRenderColor
+                subtitleColor = theme.ui.menu.rowDisabledForeground.asRenderColor
+            } else if row.isSelected {
+                titleColor = theme.ui.menu.rowHoveredForeground.asRenderColor
+                subtitleColor = theme.ui.menu.rowHoveredForeground.asRenderColor
+            } else {
+                titleColor = theme.ui.menu.rowForeground.asRenderColor
+                subtitleColor = theme.ui.menu.rowMutedForeground.asRenderColor
+            }
+            MothUnicodeTextPainter.draw(
+                row.title.text,
+                atX: row.title.bounds.x,
+                y: row.title.bounds.y + 3,
+                color: titleColor,
+                maximumWidth: row.title.bounds.w,
+                into: &framebuffer
+            )
+            if let subtitle = row.subtitle {
+                MothUnicodeTextPainter.draw(
+                    subtitle.text,
+                    atX: subtitle.bounds.x,
+                    y: subtitle.bounds.y + 2,
+                    color: subtitleColor,
+                    maximumWidth: subtitle.bounds.w,
+                    into: &framebuffer
+                )
+            }
+        }
+        if let empty = text.emptyState {
+            MothUnicodeTextPainter.draw(
+                empty.text,
+                atX: empty.bounds.x,
+                y: empty.bounds.y + 5,
+                color: theme.ui.panel.mutedForeground.asRenderColor,
+                maximumWidth: empty.bounds.w,
+                into: &framebuffer
+            )
+        }
+    }
+
     private func drawSidebar(
         framebuffer: inout LunaFramebuffer,
         sidebarWidth: Int
@@ -983,9 +1555,9 @@ public struct MothApplicationShellScene {
         MothUnicodeTextPainter.draw(snapshot.isUntitled ? "UNTITLED" : "FILE-BACKED", atX: 28, y: 162, color: palette.text, into: &framebuffer)
         MothUnicodeTextPainter.draw(snapshot.encoding.displayName, atX: 40, y: 182, color: palette.mutedText, maximumWidth: sidebarWidth - 50, into: &framebuffer)
         MothUnicodeTextPainter.draw(snapshot.displayPath, atX: 40, y: 202, color: palette.mutedText, maximumWidth: sidebarWidth - 50, into: &framebuffer)
-        MothUnicodeTextPainter.draw("Ctrl+Z Undo   Ctrl+Shift+Z Redo", atX: 28, y: 234, color: palette.mutedText, maximumWidth: sidebarWidth - 38, into: &framebuffer)
-        MothUnicodeTextPainter.draw("Ctrl+O Open   Ctrl+S Save", atX: 28, y: 254, color: palette.mutedText, maximumWidth: sidebarWidth - 38, into: &framebuffer)
-        MothUnicodeTextPainter.draw("Ctrl+Tab switches panes", atX: 28, y: 274, color: palette.mutedText, maximumWidth: sidebarWidth - 38, into: &framebuffer)
+        MothUnicodeTextPainter.draw("Ctrl+N New   Ctrl+O Open", atX: 28, y: 234, color: palette.mutedText, maximumWidth: sidebarWidth - 38, into: &framebuffer)
+        MothUnicodeTextPainter.draw("Ctrl+S Save   Ctrl+A Select All", atX: 28, y: 254, color: palette.mutedText, maximumWidth: sidebarWidth - 38, into: &framebuffer)
+        MothUnicodeTextPainter.draw("Ctrl+Shift+P Command Palette", atX: 28, y: 274, color: palette.mutedText, maximumWidth: sidebarWidth - 38, into: &framebuffer)
     }
 
     private func drawPaneEditors(
@@ -1074,10 +1646,9 @@ public struct MothApplicationShellScene {
     }
 
     public static let demoText = """
-    // Moth Text Convergence C2
-    // Two pane-bound editor views share one file document and one Moth-owned
-    // Undo/Redo history while retaining independent caret, selection, wrapping,
-    // and viewport state.
+    // Moth Text M2.2B1
+    // Keyboard shortcuts, menus, and the command palette now route through one
+    // Moth-owned command authority built on Luna's reusable command runtime.
 
     import MothTextCore
     import MothEditor
@@ -1089,6 +1660,6 @@ public struct MothApplicationShellScene {
         firstVisibleLine: 24
     )
 
-    // Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z traverse document history.
+    // Ctrl/Cmd+N creates a protected new document; Ctrl/Cmd+Shift+P opens the palette.
     """
 }

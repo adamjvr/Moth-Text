@@ -113,3 +113,22 @@ Moth job initializes submodules, invokes the permanent paired-validation script,
 and therefore verifies the same staged-gitlink, headless-render, complete-test, and
 IPC contracts used locally. Protect `main` after the first green run and require
 these checks before merging.
+
+## M2.2B1 command convergence checkpoint
+
+M2.2B1 reuses Luna's command runtime, menu bar, and quick panel while keeping
+Moth command IDs, availability, file lifecycle, editor mutation, and status policy
+inside Moth. Integration exposed one product-neutral Luna defect: disabled quick-
+panel items disappeared from filtered results. Luna corrects that reusable seam
+and adds a focused regression before Moth consumes the new framework revision.
+
+Acceptance requires:
+
+- complete Luna build/test validation at the pinned commit;
+- the focused Luna Phase 4A quick-panel regression;
+- complete Moth paired validation;
+- focused `MothCommandSystemTests`;
+- graphical keyboard/menu/palette equivalence;
+- clean and dirty New File checks covering Save, Don't Save, and Cancel.
+
+The next paired slice is M2.2B2 visible Find/Replace convergence.
