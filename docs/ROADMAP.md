@@ -203,10 +203,9 @@ C2.3 exit condition:
 > never reordered or dropped, and the layout cache cannot retain unbounded edited
 > line prefixes.
 
-
 ### Convergence C2.4 — Interactive runtime and presentation scheduling
 
-**Status: implemented; native graphical acceptance required.**
+**Status: ordinary interaction accepted; large-document scalability failed.**
 
 - persistent Luna semantic scheduler across raw acquisition passes;
 - pointer/text coalescing retained across passes;
@@ -225,13 +224,25 @@ C2.4 exit condition:
 > an intermediate frame, no semantic event is reordered, and stable cache hits do
 > not perform linear maintenance.
 
-### A1 — Paired architecture and quality audit
+Native result: this condition passed for the ordinary Moth graphical shell. It
+does not claim large-document acceptance. The generated roughly 500-line document
+froze or became unusably slow, and the Luna animated demos remained sluggish.
 
-**Next after C2.4 acceptance.**
+### A1 — Paired architecture, scalability, and quality audit
 
-Audit runtime ownership, presentation pacing, allocation/copy hot paths, Swift API
-quality, Sendable/locking claims, tests, documentation, roadmap consistency, and
-accepted debt. Publish critical/high/medium/low findings and reconvene before M3A.
+**Current next phase.**
+
+A1 begins with measured large-document and demo-composition analysis. Record
+operation counts and timings for 50, 500, 5,000, and 50,000 line fixtures across
+one/two panes, equal/unequal widths, wrapping on/off, idle render, scroll, typing,
+navigation, and resize. Audit snapshot duplication, whole-document line/wrap
+scans, shaping requests, cache churn, minimap projection, framebuffer copying,
+CPU drawing, SDL presentation, runtime ownership, Swift API quality,
+Sendable/locking claims, tests, documentation, and roadmap consistency.
+
+Publish Critical/High/Medium/Low/Accepted-Debt findings and reconvene before any
+implementation. A likely C2.5 virtualized-layout and demo-composition phase is only
+a candidate until the audit confirms it. Critical findings block M3A.
 
 ### M3A — Document sheets and real tabs
 

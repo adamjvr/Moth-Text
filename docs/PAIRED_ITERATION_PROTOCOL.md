@@ -157,7 +157,6 @@ the shaped insertion position after every operation.
 The next paired slice is M3A document sheets and real tabs. M2.2B2 visible
 Find/Replace follows after the active-document targeting model exists.
 
-
 ## C2.3 input-to-pixel latency checkpoint
 
 Commit and validate Luna first:
@@ -191,7 +190,6 @@ git diff --check
 
 The C2.3 baseline was 115 tests, but C2.3 failed graphical responsiveness acceptance. C2.4 expects 116 tests and must pass native interaction before the paired audit. M3A remains blocked until that audit is reviewed.
 
-
 ## C2.4 interactive runtime checkpoint
 
 Validate and commit Luna first with the focused scheduler and complete gates. Then
@@ -210,3 +208,14 @@ git diff --check
 Graphically test immediate clicks, menus, shortcuts, navigation, text repeat,
 scrolling, pane and scrollbar dragging, resize, and dirty-document dialogs. The
 expected Moth total is 116 tests. After acceptance, stop for the A1 paired audit.
+
+## Post-C2.4 audit checkpoint
+
+Native validation accepted the ordinary short-document Moth shell and rejected
+large-document/demo performance. Commit the permanent documentation Luna-first,
+advance Moth's Luna gitlink, and commit the matching Moth documentation. This
+checkpoint contains no source changes and does not change the 116-test baseline.
+
+Next run A1.1 measurement on 50, 500, 5,000, and 50,000 line fixtures. Do not begin
+M3A or C2.5 until the audit report classifies findings and the paired repositories
+reconvene.

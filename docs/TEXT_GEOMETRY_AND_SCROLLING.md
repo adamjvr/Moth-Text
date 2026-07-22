@@ -65,7 +65,6 @@ click placement, selection, wheel and touchpad scrolling over both panes,
 scrollbar lane paging, thumb dragging, capture loss, Page Up/Page Down, and
 caret-follow scrolling.
 
-
 ## C2.3 latency follow-up
 
 C2.3 leaves the exact C2.2 geometry unchanged. The host now presents between
@@ -76,10 +75,19 @@ layout cache uses bounded LRU retention and exposes hit/miss and shaping-time
 snapshots for regression diagnostics without drawing a constantly changing status
 string that would itself defeat caching.
 
-
 ## C2.4 scheduling correction
 
 Exact C2.2 row geometry and scrolling are unchanged. C2.4 prevents raw input
 acquisition chunks from inserting unrelated full-frame presentations before later
 clicks or commands. Text, caret, selection, hit testing, wrapping, wheel routing,
 and scrollbar behavior remain in the permanent native acceptance gate.
+
+## Post-C2.4 virtualization requirement
+
+The exact shaped-coordinate contract remains accepted, but current soft-wrap
+layout is eager across the complete document. Large-document native testing showed
+that roughly 500 generated rows can freeze or become unusably slow. The correction
+must preserve UTF-8 insertion geometry while introducing revision-keyed line/wrap
+indexes, shared pane geometry, and visible-row materialization with bounded
+overscan. Increasing the 128-entry shape cache or shortening the test fixture is
+not an acceptable fix.

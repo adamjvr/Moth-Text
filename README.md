@@ -275,7 +275,6 @@ Rejected result: presenting after bounded raw polling batches. Native testing
 showed that this delayed clicks and commands behind repeated full-frame draws.
 C2.4 replaces that scheduling policy.
 
-
 ### Convergence C2.4 — Interactive runtime and presentation scheduling
 
 C2.3's kitchen-sink restoration and diagnostics remain, but its raw polling batch
@@ -291,8 +290,12 @@ an access-generation update. Least-recently-used scans occur only during bounded
 insertion-time eviction. One new regression brings the expected Moth total to
 **116 tests**.
 
-C2.4 does not implement tabs. After native acceptance, the next phase is the paired
-architecture/quality audit; M3A begins only after that audit is reviewed.
+C2.4 does not implement tabs. Native validation accepted ordinary Moth interaction:
+the first graphical run was snappy and visually smooth. The generated large-document
+run exposed a separate Critical scalability failure: roughly 500 soft-wrapped rows
+could freeze or make the program unusably slow, while the Luna kitchen-sink demos
+remained sluggish. A1.1 measured layout/composition analysis is now the next phase;
+M3A begins only after the paired audit is reviewed.
 
 ### Deferred until after audit: M3A — Document sheets and real tabs
 
@@ -376,8 +379,10 @@ M2.2B1 replaces decorative menu labels with interactive command surfaces. C2.2
 makes shaped insertion geometry authoritative and adds normal pane-local vertical
 scrolling. C2.4 keeps raw acquisition separate from semantic scheduling and presentation,
 then removes linear ordering-array maintenance from shaped-layout cache hits. Ctrl/Cmd+N
-still safely replaces the single current document for now. The A1 paired audit is
-next; M3A real document tabs remains blocked until that audit is reviewed.
+still safely replaces the single current document for now. C2.4 ordinary-interaction
+acceptance passed, but large-document and Luna demo scalability did not. A1.1
+measurement is next; M3A real document tabs remains blocked until the audit is
+reviewed and all Critical findings are resolved or deliberately reclassified.
 
 ## License
 

@@ -271,7 +271,6 @@ ASCII diagnostic fallback for that process, and prefixes the status bar with
 Dirty and active-pane state remain Moth policy and are painted as explicit
 framebuffer geometry rather than encoded as font glyphs.
 
-
 ## Stabilization S1 validation boundary
 
 GitHub Actions and `scripts/validate-paired-iteration.sh` are two entry points to
@@ -314,7 +313,6 @@ A command invocation from a disabled binding is consumed and reported without
 mutation. This is required because host text input can otherwise commit the
 physical shortcut letter after the keyboard event. Matching disabled quick-panel
 items remain searchable, preserving discoverability and the product-owned reason.
-
 
 ## C2.2 exact text geometry and scrolling boundary
 
@@ -365,7 +363,6 @@ translation, clamping mechanics, lane paging, and thumb-drag geometry.
 C2.2 remains a single-document phase. Document sheets, real tabs, and target-aware
 close policy begin in M3A.
 
-
 ## C2.3 input-to-pixel latency boundary
 
 Luna owns bounded platform-event polling, committed-text coalescing, frame timing,
@@ -382,7 +379,6 @@ hard ordering barriers.
 Moth's shaped-layout cache is bounded and observational diagnostics are not painted
 into the hot editor path. The document model remains single-document until M3A.
 
-
 ## C2.4 interactive runtime boundary
 
 Luna separates raw SDL acquisition, persistent semantic scheduling, and
@@ -395,3 +391,17 @@ Moth's shaped-layout cache hit path is dictionary-based and performs no linear
 cache-order scan or array shift. Generation-based recency is updated on hits;
 bounded least-generation scans are confined to insertion-time eviction. The single-document product
 model remains unchanged pending the post-C2.4 audit and M3A.
+
+## Post-C2.4 large-document scalability finding
+
+C2.4 ordinary interaction scheduling passed native validation, but the generated
+roughly 500-line document exposed that Moth's presentation path is not yet
+large-document safe. A frame may construct more than one full Luna snapshot, each
+pane may request complete-document soft-wrap geometry, and the minimap may project
+the document again. With a 128-entry layout cache, eager traversal of hundreds of
+unique lines can churn geometry rather than reuse the visible working set.
+
+Moth must move toward one immutable revision-keyed presentation snapshot shared by
+both panes, caret/hit-test helpers, accessibility, and minimap metadata. Luna owns
+the reusable virtualized line/wrap/visible-row machinery; Moth owns document and
+line revision identity, source storage, and product viewport policy.

@@ -42,3 +42,12 @@ immediately followed by Ctrl commands, repeat followed by navigation, scroll the
 click, pointer capture loss, resize, and idle input. There must be no growing
 backlog, semantic reordering, repeated arbitrary presentations, or disagreement
 between caret and text. C2.4 acceptance is followed by the paired audit, not M3A.
+
+## Post-C2.4 native result
+
+The C2.4 semantic scheduler passed ordinary Moth native responsiveness checks. A
+separate roughly 500-line generated document caused freezing or severe slowdown,
+and Luna's animated demos remained sluggish. A1 treats these as layout/composition
+scalability findings unless instrumentation proves otherwise. Input scheduling
+remains instrumented during the audit so event-to-present latency can be separated
+from snapshot, layout, shaping, draw, and presentation duration.

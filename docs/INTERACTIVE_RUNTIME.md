@@ -17,3 +17,11 @@ Moth's Unicode layout cache uses access generations. Normal hits update one
 existing dictionary entry. Insertion may perform a bounded least-generation scan
 to restore the 128-entry/2 MiB limits. Performance counters remain observational
 and are not painted as a constantly changing editor string.
+
+## Native acceptance and scalability boundary
+
+C2.4 passed ordinary Moth interaction validation: the short-document shell was
+snappy and smooth. The large generated-document lockup occurs after semantic input
+has been delivered and must be investigated in snapshot projection, text layout,
+shaping, framebuffer composition, or presentation. Do not regress to raw polling
+batch frames or add host sleeps as a response to the large-document failure.
