@@ -80,6 +80,28 @@ final class MothUnicodeRenderingTests: XCTestCase {
         XCTAssertFalse(surface.contains("LunaDebugBitmapTextRenderer.draw"))
     }
 
+    func testInitializationFailureProducesPersistentVisibleDiagnosticsAndOneLog() {
+        enum TestFailure: Error { case unavailable }
+        var logMessages: [String] = []
+
+        let state = MothUnicodeTextRendererState(
+            rendererFactory: { _ in throw TestFailure.unavailable },
+            logger: { logMessages.append($0) }
+        )
+        let diagnostics = state.diagnostics
+
+        XCTAssertTrue(diagnostics.isUsingFallback)
+        XCTAssertEqual(diagnostics.mode, .diagnosticFallback)
+        XCTAssertEqual(diagnostics.warningMessage, "TEXT FALLBACK: Unicode renderer unavailable")
+        XCTAssertEqual(
+            diagnostics.prependingWarning(to: "UTF-8   SAVED"),
+            "TEXT FALLBACK: Unicode renderer unavailable   UTF-8   SAVED"
+        )
+        XCTAssertTrue(diagnostics.failureDescription?.contains("unavailable") == true)
+        XCTAssertEqual(logMessages.count, 1)
+        XCTAssertTrue(logMessages[0].contains("diagnostic fallback active"))
+    }
+
     private func markerPixels(in framebuffer: LunaFramebuffer) -> [[UInt8]] {
         var result: [[UInt8]] = []
         for y in 47..<52 {

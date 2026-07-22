@@ -97,7 +97,7 @@ C2 exit condition:
 
 ### Convergence C2.1 — Unicode text painting and visible-state correction
 
-**Status: implemented in this revision; graphical validation required.**
+**Status: complete and graphically validated.**
 
 Delivered:
 
@@ -113,13 +113,33 @@ Exit condition:
 
 > Precomposed and decomposed accents, common UI punctuation, Greek, Cyrillic,
 > filenames, and status messages paint visibly in the graphical Moth shell while
-> all 71 C2 tests remain green and dirty/active indicators stay visible.
+> the accepted 74-test C2.1 baseline remains green, plugin-host IPC passes, and
+> dirty/active indicators stay visible.
 
 Deferred:
 
 - Ctrl/Cmd+N: M2.2B command routing;
 - real tabs, multiple open documents, clickable Open Files rows, and folders: M3;
 - complete bidi/script segmentation and multi-font fallback: later LunaText work.
+
+### Stabilization S1 — Paired CI, diagnostics, and grapheme boundaries
+
+**Status: implemented in this revision; first clean GitHub Actions run required.**
+
+- Ubuntu CI for Luna and Moth;
+- recursive submodule checkout plus exact staged-gitlink verification;
+- full SwiftPM build/test and plugin-host IPC validation;
+- headless application/render smoke mode;
+- visible and logged Unicode diagnostic fallback state;
+- extended-grapheme horizontal navigation and deletion;
+- regression tests for decomposed accents across editor, history, and shell input;
+- 86 expected tests after the 12 new stabilization regressions are added.
+
+S1 exit condition:
+
+> A fresh Ubuntu runner builds and tests both repositories from their recorded
+> commits, Moth verifies the exact Luna gitlink, the headless Unicode render smoke
+> passes without fallback, and grapheme editing regressions remain green.
 
 ### M2.2B — Command and visible find convergence
 

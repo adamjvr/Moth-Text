@@ -29,7 +29,7 @@ For an existing clone:
 
 ```bash
 git submodule update --init Dependencies/Luna-UI
-./scripts/test-all.sh
+./scripts/validate-paired-iteration.sh
 ```
 
 ## Coordinated development
@@ -41,9 +41,10 @@ A paired phase normally proceeds in this order:
 3. Commit and push Luna first.
 4. Advance Moth's Luna submodule with `./scripts/update-luna.sh`.
 5. Implement Moth-owned product behavior without editing Luna inside Moth.
-6. Build and test both repositories.
-7. Launch and manually test Moth.
-8. Commit Moth-owned changes and the Luna gitlink together.
+6. Build and test both repositories with their permanent validation scripts.
+7. Require the clean-checkout GitHub Actions jobs to pass.
+8. Launch and manually test Moth.
+9. Commit Moth-owned changes and the Luna gitlink together.
 
 A paired phase does not require inventing a Luna API merely to manufacture a
 framework commit. C2 validates that rule by implementing history entirely in
@@ -118,3 +119,20 @@ not import FreeType or HarfBuzz and does not own a duplicate glyph cache.
 
 `LunaDebugBitmapTextRenderer` remains valid for ASCII diagnostics and early
 bring-up, but production Moth document text must not call it directly.
+
+
+## Stabilization S1 CI contract
+
+Moth's workflow checks out submodules recursively, while the repository validation
+script verifies that `Dependencies/Luna-UI` is clean and exactly matches the index
+gitlink. After intentionally advancing Luna, stage the gitlink before validation:
+
+```bash
+git add Dependencies/Luna-UI
+./scripts/validate-paired-iteration.sh
+```
+
+The validation gate also runs `MothTextLinux --headless-smoke`. This renders one
+frame without opening SDL, requires the Unicode renderer to remain active, and
+fails when font discovery, HarfBuzz shaping, FreeType rasterization, or framebuffer
+painting falls back to the ASCII diagnostic path.

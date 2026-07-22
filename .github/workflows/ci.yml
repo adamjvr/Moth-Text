@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: moth-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-swiftpm:
+    name: Ubuntu paired-repository validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    steps:
+      - name: Check out Moth Text and pinned Luna UI
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          persist-credentials: false
+
+      - name: Install Swift 6.0
+        uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.0"
+
+      - name: Install native development dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            libsdl2-dev \
+            libharfbuzz-dev \
+            libfreetype6-dev \
+            fonts-dejavu-core \
+            pkg-config
+
+      - name: Print toolchain and dependency versions
+        run: |
+          swift --version
+          pkg-config --modversion sdl2
+          pkg-config --modversion harfbuzz
+          pkg-config --modversion freetype2
+          git submodule status --recursive
+
+      - name: Run paired Moth and Luna validation
+        run: ./scripts/validate-paired-iteration.sh

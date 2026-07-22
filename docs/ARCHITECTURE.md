@@ -78,6 +78,11 @@ MothFileDocument
 The document text and Undo/Redo history are shared. Caret, selection, preferred
 column, active-pane status, and viewport remain view-local.
 
+User-facing horizontal movement and deletion operate on extended grapheme-cluster
+boundaries while stored coordinates remain absolute UTF-8 offsets. This prevents a
+caret or destructive edit from stopping inside a multibyte scalar, combining
+sequence, or other Swift `Character` in the current String-backed implementation.
+
 ## Revision identity versus history identity
 
 `MothBufferRevision` is a monotonically increasing invalidation generation. Every
@@ -257,5 +262,19 @@ keeping wrapping, caret, selection, hit testing, and painting aligned for the
 current monospaced editor surface. Full bidirectional layout, script segmentation,
 and multi-font fallback remain later LunaText work.
 
+Renderer initialization and draw failure are retained as Moth diagnostic state.
+The application logs the first failure once, switches permanently to the visible
+ASCII diagnostic fallback for that process, and prefixes the status bar with
+`TEXT FALLBACK` instead of silently losing Unicode coverage.
+
 Dirty and active-pane state remain Moth policy and are painted as explicit
 framebuffer geometry rather than encoded as font glyphs.
+
+
+## Stabilization S1 validation boundary
+
+GitHub Actions and `scripts/validate-paired-iteration.sh` are two entry points to
+the same repository gate. Validation checks native dependencies, the exact staged
+Luna gitlink, a clean Luna submodule, every SwiftPM build/test product, a headless
+Unicode render bootstrap, and the plugin-host IPC smoke test. The graphical window
+remains a separate manual acceptance gate.

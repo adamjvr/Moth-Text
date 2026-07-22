@@ -11,10 +11,11 @@ Moth consumes Luna through the Git submodule at `Dependencies/Luna-UI`.
 4. Commit and push Luna first.
 5. Run Moth's scripts/update-luna.sh on the normal Luna main branch.
 6. Implement Moth product behavior without editing Luna from the Moth delivery.
-7. Build and test Moth against the pinned Luna commit.
-8. Launch and manually smoke-test Moth.
-9. Run plugin-host IPC smoke testing when IPC code changes or as a final regression.
-10. Commit Moth-owned changes and the Luna gitlink update together.
+7. Stage the intended Luna gitlink and build/test Moth against that exact commit.
+8. Run the headless render and plugin-host IPC smoke tests.
+9. Require both clean-checkout GitHub Actions jobs to pass.
+10. Launch and manually smoke-test Moth.
+11. Commit Moth-owned changes and the Luna gitlink update together.
 ```
 
 Do not add a framework abstraction merely to force every phase to contain Luna
@@ -43,9 +44,12 @@ The dependency must remain on `main`, not detached.
 Validation rejects:
 
 - an uninitialized Luna submodule;
-- a checkout different from the recorded gitlink when validating a committed tree;
+- a checkout different from the staged/index gitlink;
 - merge conflicts or uncommitted files inside Luna;
-- failed Moth builds or tests.
+- missing SDL2, HarfBuzz, or FreeType development packages;
+- failed Moth builds or tests;
+- Unicode renderer fallback during the headless render smoke;
+- failed plugin-host IPC smoke testing.
 
 ## Overlay deliveries
 
@@ -98,5 +102,14 @@ advance Moth's submodule and adopt the painter. The Moth delivery must include t
 new Package.swift product dependency, MothUnicodeTextPainter, pane/shell adoption,
 and graphical regressions.
 
-The manual gate must visibly verify accented text and dirty/active indicators; a
-headless UTF-8 storage test alone is insufficient.
+The C2.1 manual gate has passed. Future paired phases retain accented text,
+dirty/active indicators, and Unicode filenames as baseline graphical checks; a
+headless UTF-8 storage test alone remains insufficient.
+
+## GitHub Actions gate
+
+The Luna and Moth `CI` workflows run on pushes and pull requests to `main`. The
+Moth job initializes submodules, invokes the permanent paired-validation script,
+and therefore verifies the same staged-gitlink, headless-render, complete-test, and
+IPC contracts used locally. Protect `main` after the first green run and require
+these checks before merging.

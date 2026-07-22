@@ -196,6 +196,22 @@ C2.1 deliberately does not implement Ctrl+N, multiple documents, real tabs, or
 folder-row activation. Ctrl+N remains M2.2B command scope; real documents/tabs and
 project navigation remain M3 workspace scope.
 
+C2.1 is now graphically accepted at this repository head. The 74-test C2.1
+baseline and plugin-host IPC smoke test passed on Linux before Stabilization S1.
+
+### Stabilization S1 — Repository trust and grapheme correctness
+
+Implemented in this revision:
+
+- clean-checkout Ubuntu GitHub Actions for Moth and the pinned Luna submodule;
+- exact staged-gitlink verification for paired Luna updates;
+- a noninteractive `--headless-smoke` render/bootstrap mode used by CI;
+- persistent Unicode-renderer diagnostics with a visible status-bar fallback warning;
+- one-time renderer failure logging rather than silent degradation;
+- extended-grapheme navigation, selection, Backspace, and Delete behavior;
+- regression coverage for decomposed accents through editor, history, and application paths;
+- an expanded expected automated total of 86 tests, up from the accepted 74-test C2.1 baseline.
+
 ### Next: M2.2B — Command and visible find convergence
 
 The next product slice connects Moth's typed command authority to Luna menus,
@@ -219,11 +235,16 @@ sudo apt update
 sudo apt install libsdl2-dev libharfbuzz-dev libfreetype6-dev pkg-config
 ```
 
-Then:
+Then run the complete local equivalent of the GitHub Actions gate:
+
+```bash
+./scripts/validate-paired-iteration.sh
+```
+
+For the shorter bootstrap-only path:
 
 ```bash
 ./scripts/bootstrap.sh
-swift test
 ```
 
 Launch with an untitled document:
@@ -255,8 +276,11 @@ mouse selection, and document-owned Undo/Redo remain active together.
 C2 development diagnostics expose the monotonic buffer revision, logical history
 state, dirty state, active pane, and retained Undo/Redo group counts in the status
 bar. C2.1 paints document and user-facing text through LunaTextRender and uses
-geometry for dirty/active indicators. The visible Edit menu is still
-presentation-only; unified command/menu/palette routing is deferred to M2.2B.
+geometry for dirty/active indicators. S1 reports Unicode-renderer failure in that
+status bar, logs the retained error once, and keeps the visible ASCII diagnostic
+fallback usable. Horizontal movement and deletion now step across extended
+grapheme clusters. The visible Edit menu remains presentation-only; unified
+command/menu/palette routing is deferred to M2.2B.
 
 ## License
 

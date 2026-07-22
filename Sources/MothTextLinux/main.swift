@@ -52,6 +52,7 @@ private struct LaunchOptions {
     var openPath: String?
     var scriptedSavePath: String?
     var ipcSmoke = false
+    var headlessSmoke = false
 
     init(arguments: [String]) {
         var index = 1
@@ -59,6 +60,8 @@ private struct LaunchOptions {
             switch arguments[index] {
             case "--ipc-smoke":
                 ipcSmoke = true
+            case "--headless-smoke":
+                headlessSmoke = true
             case "--open" where index + 1 < arguments.count:
                 index += 1
                 openPath = arguments[index]
@@ -127,6 +130,24 @@ if let openPath = options.openPath {
         writeError("[MothTextLinux] Could not open \(openPath): \(error.localizedDescription)")
         exit(EXIT_FAILURE)
     }
+}
+
+if options.headlessSmoke {
+    var framebuffer = LunaFramebuffer(width: 1100, height: 720)
+    shell.render(into: &framebuffer)
+
+    let diagnostics = shell.unicodeTextDiagnostics
+    if diagnostics.isUsingFallback {
+        let detail = diagnostics.failureDescription ?? "unknown renderer failure"
+        writeError("[MothTextLinux] Headless render smoke failed: \(detail)")
+        exit(EXIT_FAILURE)
+    }
+
+    print(
+        "[MothTextLinux] Headless render smoke passed with Unicode font: "
+            + (diagnostics.fontPath ?? "<unknown>")
+    )
+    exit(EXIT_SUCCESS)
 }
 
 private var scene = MothLinuxSDLScene(shell: shell)

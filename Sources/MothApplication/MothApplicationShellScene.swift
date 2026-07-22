@@ -103,6 +103,7 @@ public struct MothApplicationShellScene {
     public var buffer: MothInMemorySourceBuffer { document.buffer }
     public var documentSnapshot: MothDocumentSnapshot { document.snapshot() }
     public var historyStatus: MothHistoryStatus { document.history.status() }
+    public var unicodeTextDiagnostics: MothUnicodeTextDiagnostics { MothUnicodeTextPainter.diagnostics }
     public var wantsContinuousRendering: Bool { textSelectionInteractionState.wantsContinuousUpdates }
     public var cursorIntent: LunaCursorIntent { currentCursorIntent }
     public var wantsPointerCapture: Bool {
@@ -517,8 +518,11 @@ public struct MothApplicationShellScene {
         case .arrowLeft:
             document.history.breakCoalescing()
             mutateActiveView { view in
-                let next = MothTextOffset(rawValue: max(0, view.caret.rawValue - 1))
-                view.setCaret(next, extendingSelection: event.modifiers.shift)
+                view.moveCaretHorizontally(
+                    .backward,
+                    in: snapshot.text,
+                    extendingSelection: event.modifiers.shift
+                )
                 _ = view.synchronize(with: snapshot)
             }
             ensureActiveCaretVisible()
@@ -526,8 +530,11 @@ public struct MothApplicationShellScene {
         case .arrowRight:
             document.history.breakCoalescing()
             mutateActiveView { view in
-                let next = MothTextOffset(rawValue: min(snapshot.utf8Count, view.caret.rawValue + 1))
-                view.setCaret(next, extendingSelection: event.modifiers.shift)
+                view.moveCaretHorizontally(
+                    .forward,
+                    in: snapshot.text,
+                    extendingSelection: event.modifiers.shift
+                )
                 _ = view.synchronize(with: snapshot)
             }
             ensureActiveCaretVisible()
@@ -941,12 +948,17 @@ public struct MothApplicationShellScene {
         let history = document.history.status()
         let dirty = documentSnapshot.isDirty ? "MODIFIED" : "SAVED"
         let pane = paneWorkspace.activePaneID == Self.primaryPaneID ? "PRIMARY" : "SECONDARY"
-        let status = "\(documentSnapshot.encoding.displayName)   REV \(snapshot.revision.rawValue)   H\(snapshot.historyState.rawValue)   \(dirty)   U\(history.undoGroupCount)/R\(history.redoGroupCount)   \(pane)   \(statusMessage)"
+        let baseStatus = "\(documentSnapshot.encoding.displayName)   REV \(snapshot.revision.rawValue)   H\(snapshot.historyState.rawValue)   \(dirty)   U\(history.undoGroupCount)/R\(history.redoGroupCount)   \(pane)   \(statusMessage)"
+        let textDiagnostics = MothUnicodeTextPainter.diagnostics
+        let status = textDiagnostics.prependingWarning(to: baseStatus)
+        let statusColor = textDiagnostics.isUsingFallback
+            ? palette.accentStrong
+            : (documentSnapshot.isDirty ? activeAccent : palette.mutedText)
         MothUnicodeTextPainter.draw(
             status,
             atX: 12,
             y: max(0, framebuffer.height - statusHeight + 5),
-            color: documentSnapshot.isDirty ? activeAccent : palette.mutedText,
+            color: statusColor,
             maximumWidth: max(0, framebuffer.width - 24),
             into: &framebuffer
         )

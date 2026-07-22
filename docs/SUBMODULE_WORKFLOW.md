@@ -4,9 +4,9 @@
 
 ```bash
 ./scripts/update-luna.sh
-./scripts/test-all.sh
-git status --short
 git add Dependencies/Luna-UI
+./scripts/validate-paired-iteration.sh
+git status --short
 # Add related Moth changes, then commit them together.
 ```
 
@@ -25,3 +25,11 @@ git -C Dependencies/Luna-UI log -1 --oneline
 - Do not advance the gitlink merely to track Luna `main`; advance it for a tested
   compatibility reason.
 - Do not place Moth resources or product policy inside the Luna submodule.
+
+
+## CI interpretation
+
+GitHub Actions checks out the committed gitlink. Local paired validation checks the
+index gitlink so a newly advanced Luna revision can be tested before the Moth commit
+exists. If validation reports a mismatch after `update-luna.sh`, stage only the
+gitlink with `git add Dependencies/Luna-UI` and rerun validation.

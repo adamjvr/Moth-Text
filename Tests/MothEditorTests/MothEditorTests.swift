@@ -80,6 +80,95 @@ final class MothEditorTests: XCTestCase {
         XCTAssertEqual(view.caret, MothTextOffset(rawValue: 1))
     }
 
+    func testHorizontalCaretMovementUsesExtendedGraphemeBoundaries() {
+        let text = "Ae\u{301}Z"
+        var view = MothEditorViewState(bufferID: MothBufferID())
+
+        view.moveCaretHorizontally(.forward, in: text)
+        XCTAssertEqual(view.caret, MothTextOffset(rawValue: 1))
+
+        view.moveCaretHorizontally(.forward, in: text)
+        XCTAssertEqual(view.caret, MothTextOffset(rawValue: 4))
+
+        view.moveCaretHorizontally(.backward, in: text)
+        XCTAssertEqual(view.caret, MothTextOffset(rawValue: 1))
+    }
+
+    func testHorizontalMovementWithoutShiftCollapsesSelectionByDirection() {
+        let text = "Ae\u{301}Z"
+        let bufferID = MothBufferID()
+        var backward = MothEditorViewState(
+            bufferID: bufferID,
+            caret: MothTextOffset(rawValue: 4),
+            selection: MothTextSelection(
+                anchor: MothTextOffset(rawValue: 1),
+                focus: MothTextOffset(rawValue: 4)
+            )
+        )
+        var forward = backward
+
+        backward.moveCaretHorizontally(.backward, in: text)
+        forward.moveCaretHorizontally(.forward, in: text)
+
+        XCTAssertEqual(backward.caret, MothTextOffset(rawValue: 1))
+        XCTAssertNil(backward.selection)
+        XCTAssertEqual(forward.caret, MothTextOffset(rawValue: 4))
+        XCTAssertNil(forward.selection)
+    }
+
+    func testShiftMovementSelectsOneWholeExtendedGrapheme() {
+        let text = "Ae\u{301}Z"
+        var view = MothEditorViewState(
+            bufferID: MothBufferID(),
+            caret: MothTextOffset(rawValue: 1)
+        )
+
+        view.moveCaretHorizontally(.forward, in: text, extendingSelection: true)
+
+        XCTAssertEqual(view.caret, MothTextOffset(rawValue: 4))
+        XCTAssertEqual(
+            view.selection,
+            MothTextSelection(
+                anchor: MothTextOffset(rawValue: 1),
+                focus: MothTextOffset(rawValue: 4)
+            )
+        )
+    }
+
+    func testLegacyDeleteOperationsRemoveWholeExtendedGraphemes() {
+        let text = "Ae\u{301}Z"
+
+        let backwardBuffer = MothInMemorySourceBuffer(text: text)
+        var backwardView = MothEditorViewState(
+            bufferID: backwardBuffer.id,
+            caret: MothTextOffset(rawValue: 4)
+        )
+        _ = backwardView.synchronize(with: backwardBuffer.snapshot())
+        let backward = MothEditorTransactions.deleteBackward(
+            in: backwardBuffer,
+            view: &backwardView
+        )
+
+        XCTAssertEqual(backward.replacedRange, MothTextRange(start: 1, end: 4))
+        XCTAssertEqual(backward.removedText, "e\u{301}")
+        XCTAssertEqual(backwardBuffer.snapshot().text, "AZ")
+
+        let forwardBuffer = MothInMemorySourceBuffer(text: text)
+        var forwardView = MothEditorViewState(
+            bufferID: forwardBuffer.id,
+            caret: MothTextOffset(rawValue: 1)
+        )
+        _ = forwardView.synchronize(with: forwardBuffer.snapshot())
+        let forward = MothEditorTransactions.deleteForward(
+            in: forwardBuffer,
+            view: &forwardView
+        )
+
+        XCTAssertEqual(forward.replacedRange, MothTextRange(start: 1, end: 4))
+        XCTAssertEqual(forward.removedText, "e\u{301}")
+        XCTAssertEqual(forwardBuffer.snapshot().text, "AZ")
+    }
+
     func testFindSessionOwnsReplacementPolicy() {
         let buffer = MothInMemorySourceBuffer(text: "cat dog cat")
         var session = MothFindSession(buffer: buffer)
@@ -99,7 +188,6 @@ final class MothEditorTests: XCTestCase {
         _ = buffer.replace(MothTextRange(start: 0, end: 0), with: "big ")
 
         let transaction = session.replaceCurrent(with: "fox")
-
         XCTAssertEqual(transaction?.replacedRange, MothTextRange(start: 4, end: 7))
         XCTAssertEqual(buffer.snapshot().text, "big fox cat")
     }

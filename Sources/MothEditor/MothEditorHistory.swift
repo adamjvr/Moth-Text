@@ -237,9 +237,11 @@ public final class MothDocumentHistory: @unchecked Sendable {
                 placesCaretAfterReplacement: true
             )
         }
-        let caret = min(originView.caret.rawValue, buffer.snapshot().utf8Count)
+        let snapshot = buffer.snapshot()
+        let caret = MothGraphemeBoundary.atOrBefore(originView.caret, in: snapshot.text)
+        let start = MothGraphemeBoundary.previous(before: caret, in: snapshot.text)
         return performReplacement(
-            MothTextRange(start: max(0, caret - 1), end: caret),
+            MothTextRange(start: start, end: caret),
             with: "",
             intent: .deleteBackward,
             in: buffer,
@@ -267,9 +269,10 @@ public final class MothDocumentHistory: @unchecked Sendable {
             )
         }
         let snapshot = buffer.snapshot()
-        let caret = min(originView.caret.rawValue, snapshot.utf8Count)
+        let caret = MothGraphemeBoundary.atOrBefore(originView.caret, in: snapshot.text)
+        let end = MothGraphemeBoundary.next(after: caret, in: snapshot.text)
         return performReplacement(
-            MothTextRange(start: caret, end: min(snapshot.utf8Count, caret + 1)),
+            MothTextRange(start: caret, end: end),
             with: "",
             intent: .deleteForward,
             in: buffer,

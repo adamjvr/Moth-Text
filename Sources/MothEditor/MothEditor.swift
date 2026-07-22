@@ -91,10 +91,19 @@ public struct MothEditorViewState: Hashable, Sendable {
         guard observedRevision != snapshot.revision else { return false }
 
         let upper = snapshot.utf8Count
-        caret = MothTextOffset(rawValue: min(caret.rawValue, upper))
+        caret = MothGraphemeBoundary.atOrBefore(
+            MothTextOffset(rawValue: min(caret.rawValue, upper)),
+            in: snapshot.text
+        )
         if let selection, !selection.isCollapsed {
-            let anchor = MothTextOffset(rawValue: min(selection.anchor.rawValue, upper))
-            let focus = MothTextOffset(rawValue: min(selection.focus.rawValue, upper))
+            let anchor = MothGraphemeBoundary.atOrBefore(
+                MothTextOffset(rawValue: min(selection.anchor.rawValue, upper)),
+                in: snapshot.text
+            )
+            let focus = MothGraphemeBoundary.atOrBefore(
+                MothTextOffset(rawValue: min(selection.focus.rawValue, upper)),
+                in: snapshot.text
+            )
             self.selection = anchor == focus
                 ? nil
                 : MothTextSelection(anchor: anchor, focus: focus)
@@ -204,9 +213,10 @@ public enum MothEditorTransactions {
             return replaceSelection(in: buffer, view: &view, with: "")
         }
 
-        let caret = min(view.caret.rawValue, buffer.snapshot().utf8Count)
-        let range = MothTextRange(start: max(0, caret - 1), end: caret)
-        let transaction = buffer.replace(range, with: "")
+        let snapshot = buffer.snapshot()
+        let caret = MothGraphemeBoundary.atOrBefore(view.caret, in: snapshot.text)
+        let start = MothGraphemeBoundary.previous(before: caret, in: snapshot.text)
+        let transaction = buffer.replace(MothTextRange(start: start, end: caret), with: "")
         view.caret = transaction.newCaret
         view.selection = nil
         view.preferredUTF8Column = nil
@@ -225,9 +235,9 @@ public enum MothEditorTransactions {
         }
 
         let snapshot = buffer.snapshot()
-        let caret = min(view.caret.rawValue, snapshot.utf8Count)
-        let range = MothTextRange(start: caret, end: min(snapshot.utf8Count, caret + 1))
-        let transaction = buffer.replace(range, with: "")
+        let caret = MothGraphemeBoundary.atOrBefore(view.caret, in: snapshot.text)
+        let end = MothGraphemeBoundary.next(after: caret, in: snapshot.text)
+        let transaction = buffer.replace(MothTextRange(start: caret, end: end), with: "")
         view.caret = transaction.newCaret
         view.selection = nil
         view.preferredUTF8Column = nil
