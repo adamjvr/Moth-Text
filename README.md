@@ -260,25 +260,41 @@ lifecycle until M3A installs document sheets.
 
 ### Convergence C2.3 — Input-to-pixel latency and demo restoration
 
-Implemented after graphical C2.2 validation confirmed exact caret geometry but
-exposed visible lag and stutter during rapid typing and OS key repeat:
+C2.3 followed C2.2 exact geometry and attempted to reduce rapid-input lag.
+Retained results:
 
-- LunaHostSDL polls at most 96 raw events or approximately 2 ms before returning
-  control to rendering and presentation;
-- conservative backlog batches resume immediately without an additional pacing sleep;
 - plain printable key-down events defer to authoritative committed text input;
-- adjacent committed text events coalesce into one ordered Moth edit transaction
-  without crossing command, navigation, pointer, resize, or focus barriers;
-- Luna frame timing records input-to-present latency and polling/merge diagnostics;
-- Moth retains bounded LRU shaped-layout entries and exposes cache hit/miss and
-  shaping-time diagnostics without drawing a constantly changing diagnostic string;
-- four new Moth regressions bring the expected total to 115 tests;
+- adjacent committed text remains ordered around commands, navigation, pointer,
+  resize, and focus barriers;
+- Luna frame timing records input-to-present latency and merge diagnostics;
 - LunaUITestApp again defaults to the complete kitchen-sink demo, including the
-  animated square and a deterministic 340-row scrolling corpus.
+  animated square and a deterministic 340-row scrolling corpus;
+- four regressions established the 115-test baseline.
 
-C2.3 does not implement multiple documents. M3A remains the next product slice.
+Rejected result: presenting after bounded raw polling batches. Native testing
+showed that this delayed clicks and commands behind repeated full-frame draws.
+C2.4 replaces that scheduling policy.
 
-### Next: M3A — Document sheets and real tabs
+
+### Convergence C2.4 — Interactive runtime and presentation scheduling
+
+C2.3's kitchen-sink restoration and diagnostics remain, but its raw polling batch
+policy failed graphical acceptance by delaying clicks and commands behind repeated
+full-frame presentations. C2.4 consumes Luna's persistent semantic scheduler:
+coalescing survives native acquisition passes, clicks and fresh/modified keys
+request prompt dispatch, and sustained text, repeat, scroll, and resize streams are
+bounded by idle state, semantic thresholds, or a latency deadline rather than by
+arbitrary polling limits.
+
+Moth replaces the array-maintained layout LRU hit path with dictionary lookup plus
+an access-generation update. Least-recently-used scans occur only during bounded
+insertion-time eviction. One new regression brings the expected Moth total to
+**116 tests**.
+
+C2.4 does not implement tabs. After native acceptance, the next phase is the paired
+architecture/quality audit; M3A begins only after that audit is reviewed.
+
+### Deferred until after audit: M3A — Document sheets and real tabs
 
 The next product slice introduces a Moth-owned document-sheet collection and
 projects it through Luna's existing tab mechanics. Ctrl/Cmd+N will append and
@@ -358,10 +374,10 @@ clusters.
 
 M2.2B1 replaces decorative menu labels with interactive command surfaces. C2.2
 makes shaped insertion geometry authoritative and adds normal pane-local vertical
-scrolling. C2.3 bounds host polling, batches contiguous committed text, records
-input-to-present latency, and keeps shaped-layout retention bounded. Ctrl/Cmd+N
-still safely replaces the single current document for now; M3A is the next slice
-and will introduce real document tabs.
+scrolling. C2.4 keeps raw acquisition separate from semantic scheduling and presentation,
+then removes linear ordering-array maintenance from shaped-layout cache hits. Ctrl/Cmd+N
+still safely replaces the single current document for now. The A1 paired audit is
+next; M3A real document tabs remains blocked until that audit is reviewed.
 
 ## License
 

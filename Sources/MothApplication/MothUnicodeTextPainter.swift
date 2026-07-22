@@ -40,6 +40,7 @@ public struct MothUnicodeTextPerformanceSnapshot: Hashable, Sendable {
     public let shapingNanoseconds: UInt64
     public let layoutCacheEntryCount: Int
     public let layoutCacheCost: Int
+    public let layoutCacheEvictionCount: UInt64
 
     public var cacheHitRate: Double {
         guard layoutRequestCount > 0 else { return 0 }
@@ -51,7 +52,7 @@ public struct MothUnicodeTextPerformanceSnapshot: Hashable, Sendable {
     }
 
     public var compactStatusText: String {
-        "shape H\(layoutCacheHitCount)/M\(layoutCacheMissCount) "
+        "shape H\(layoutCacheHitCount)/M\(layoutCacheMissCount) E\(layoutCacheEvictionCount) "
             + String(format: "%.2fms", shapingMilliseconds)
     }
 }
@@ -188,9 +189,16 @@ final class MothUnicodeTextRendererState: @unchecked Sendable {
     private var expandedRunCache: [MothExpandedTextCacheKey: MothExpandedTextRun] = [:]
     private var expandedRunCacheOrder: [MothExpandedTextCacheKey] = []
     private var expandedRunCacheCost = 0
-    private var layoutCache: [String: LunaUnicodeTextLayout] = [:]
-    private var layoutCacheOrder: [String] = []
+    private struct LayoutCacheEntry {
+        var layout: LunaUnicodeTextLayout
+        var cost: Int
+        var lastAccessGeneration: UInt64
+    }
+
+    private var layoutCache: [String: LayoutCacheEntry] = [:]
     private var layoutCacheCost = 0
+    private var layoutAccessGeneration: UInt64 = 0
+    private var layoutCacheEvictionCount: UInt64 = 0
     private var layoutRequestCount: UInt64 = 0
     private var layoutCacheHitCount: UInt64 = 0
     private var layoutCacheMissCount: UInt64 = 0
@@ -242,7 +250,8 @@ final class MothUnicodeTextRendererState: @unchecked Sendable {
             layoutCacheMissCount: layoutCacheMissCount,
             shapingNanoseconds: shapingNanoseconds,
             layoutCacheEntryCount: layoutCache.count,
-            layoutCacheCost: layoutCacheCost
+            layoutCacheCost: layoutCacheCost,
+            layoutCacheEvictionCount: layoutCacheEvictionCount
         )
     }
 
@@ -252,6 +261,7 @@ final class MothUnicodeTextRendererState: @unchecked Sendable {
         layoutCacheHitCount = 0
         layoutCacheMissCount = 0
         shapingNanoseconds = 0
+        layoutCacheEvictionCount = 0
         lock.unlock()
     }
 
@@ -413,11 +423,14 @@ final class MothUnicodeTextRendererState: @unchecked Sendable {
     ) throws -> LunaUnicodeTextLayout {
         lock.lock()
         layoutRequestCount &+= 1
-        if let cached = layoutCache[text] {
+        layoutAccessGeneration &+= 1
+        let accessGeneration = layoutAccessGeneration
+        if var cached = layoutCache[text] {
             layoutCacheHitCount &+= 1
-            touchLayoutCacheKey(text)
+            cached.lastAccessGeneration = accessGeneration
+            layoutCache[text] = cached
             lock.unlock()
-            return cached
+            return cached.layout
         }
         layoutCacheMissCount &+= 1
         lock.unlock()
@@ -426,9 +439,7 @@ final class MothUnicodeTextRendererState: @unchecked Sendable {
         let layout = try activeRenderer.layout(text)
         let finishedAt = DispatchTime.now().uptimeNanoseconds
         let shapeDuration = finishedAt >= startedAt ? finishedAt - startedAt : 0
-        let cost = text.utf8.count
-            + layout.glyphs.count * MemoryLayout<LunaUnicodeGlyphPlacement>.stride
-            + layout.insertionPositions.count * MemoryLayout<LunaUnicodeTextInsertionPosition>.stride
+        let cost = Self.layoutCacheCost(for: text, layout: layout)
 
         lock.lock()
         shapingNanoseconds &+= shapeDuration
@@ -436,23 +447,45 @@ final class MothUnicodeTextRendererState: @unchecked Sendable {
             lock.unlock()
             return layout
         }
-        if renderer === activeRenderer, layoutCache[text] == nil {
-            layoutCache[text] = layout
-            layoutCacheOrder.append(text)
-            layoutCacheCost += cost
-            trimLayoutCache()
+
+        // Another caller may have populated the same key while shaping occurred.
+        // Reuse that canonical entry and update its generation rather than
+        // replacing it or double-counting its cost.
+        if var existing = layoutCache[text] {
+            existing.lastAccessGeneration = max(
+                existing.lastAccessGeneration,
+                accessGeneration
+            )
+            layoutCache[text] = existing
+            let result = existing.layout
+            lock.unlock()
+            return result
         }
-        let result = layoutCache[text] ?? layout
+
+        guard renderer === activeRenderer else {
+            lock.unlock()
+            return layout
+        }
+
+        layoutCache[text] = LayoutCacheEntry(
+            layout: layout,
+            cost: cost,
+            lastAccessGeneration: accessGeneration
+        )
+        layoutCacheCost += cost
+        trimLayoutCacheAfterInsertion()
+        let result = layoutCache[text]?.layout ?? layout
         lock.unlock()
         return result
     }
 
-    private func touchLayoutCacheKey(_ text: String) {
-        guard let index = layoutCacheOrder.firstIndex(of: text),
-              index != layoutCacheOrder.index(before: layoutCacheOrder.endIndex)
-        else { return }
-        layoutCacheOrder.remove(at: index)
-        layoutCacheOrder.append(text)
+    private static func layoutCacheCost(
+        for text: String,
+        layout: LunaUnicodeTextLayout
+    ) -> Int {
+        text.utf8.count
+            + layout.glyphs.count * MemoryLayout<LunaUnicodeGlyphPlacement>.stride
+            + layout.insertionPositions.count * MemoryLayout<LunaUnicodeTextInsertionPosition>.stride
     }
 
     private func trimExpandedRunCache() {
@@ -467,15 +500,23 @@ final class MothUnicodeTextRendererState: @unchecked Sendable {
         }
     }
 
-    private func trimLayoutCache() {
+    /// Eviction is intentionally confined to insertion/maintenance. Cache hits
+    /// remain dictionary lookup plus one generation update; they never scan or
+    /// shift an ordering array on the editor's render hot path.
+    private func trimLayoutCacheAfterInsertion() {
         while layoutCache.count > Self.maximumCacheEntryCount
             || layoutCacheCost > Self.maximumCacheCost {
-            guard !layoutCacheOrder.isEmpty else { break }
-            let text = layoutCacheOrder.removeFirst()
-            guard let removed = layoutCache.removeValue(forKey: text) else { continue }
-            layoutCacheCost -= text.utf8.count
-                + removed.glyphs.count * MemoryLayout<LunaUnicodeGlyphPlacement>.stride
-                + removed.insertionPositions.count * MemoryLayout<LunaUnicodeTextInsertionPosition>.stride
+            guard let victim = layoutCache.min(
+                by: { lhs, rhs in
+                    if lhs.value.lastAccessGeneration == rhs.value.lastAccessGeneration {
+                        return lhs.key < rhs.key
+                    }
+                    return lhs.value.lastAccessGeneration < rhs.value.lastAccessGeneration
+                }
+            ) else { break }
+            guard let removed = layoutCache.removeValue(forKey: victim.key) else { continue }
+            layoutCacheCost -= removed.cost
+            layoutCacheEvictionCount &+= 1
         }
     }
 
@@ -522,8 +563,8 @@ final class MothUnicodeTextRendererState: @unchecked Sendable {
         expandedRunCacheOrder.removeAll(keepingCapacity: false)
         expandedRunCacheCost = 0
         layoutCache.removeAll(keepingCapacity: false)
-        layoutCacheOrder.removeAll(keepingCapacity: false)
         layoutCacheCost = 0
+        layoutAccessGeneration = 0
         if failureDescription == nil {
             failureDescription = description
         }

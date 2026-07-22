@@ -1,38 +1,44 @@
-# Input-to-Pixel Latency
+# Interactive Input-to-Pixel Latency
 
-Convergence C2.3 follows C2.2 exact geometry. C2.2 made the final caret position
-correct; C2.3 ensures the correct state is presented promptly during sustained
-typing and OS key repeat.
+## C2.3 failure
 
-## Ordered batching
+C2.3 attempted to prevent sustained input from starving presentation by limiting
+one SDL poll to 96 raw events or approximately 2 ms and presenting between those
+batches. Native testing showed the opposite failure: raw acquisition chunks are
+not semantic boundaries. A click or command could remain deeper in the SDL queue
+while Moth performed several expensive CPU framebuffer renders and presentations.
+The demo restoration, committed-text authority, and diagnostics remain valid; the
+stateless polling/presentation policy is rejected.
 
-LunaHostSDL polls a bounded raw-event batch. Plain printable key-down events defer
-to SDL committed text. Adjacent committed-text events concatenate only while they
-remain contiguous. Keyboard commands, navigation, pointer input, resize, focus,
-and capture-loss events flush pending text and preserve their original order.
+## C2.4 model
 
-Moth therefore receives a rapid character run as one `LunaTextInputEvent` string
-and applies it with one document-history insertion. Undo removes the batch as the
-same logical typing group, both editor views synchronize, and caret visibility is
-resolved once.
+Luna now owns a persistent `LunaInteractiveInputScheduler`. It coalesces compatible
+pointer motion and committed text across acquisition passes. Pointer down/up,
+keyboard commands, navigation, scrolling, resize, capture loss, and quit are
+ordering barriers. Pending text or motion is flushed before a barrier. Pointer
+activation, fresh key presses, modified commands, and control loss request prompt
+dispatch. Unmodified repeat, scroll, and resize streams remain ordered but may
+batch within the strict semantic-work and latency limits.
 
-## Presentation fairness
+Raw polling limits only bound one acquisition call. They never request a frame.
+Semantic input becomes ready for prompt/control events, when the native source is
+idle, when text reaches its UTF-8 byte threshold, when queued semantic work reaches
+its bounded threshold, or when the oldest timestamp reaches the presentation
+deadline. Moth receives an ordered semantic batch, applies its document/history
+operations, and Luna presents only if scene invalidation reports a visible change.
 
-The default host budget is 96 raw events or approximately 2 ms. Reaching either
-limit is a conservative backlog signal: the host renders and presents, avoids an
-extra pacing sleep, then resumes polling. No semantic event is dropped.
+## Layout cache hot path
 
-## Shaped-layout retention
-
-The exact C2.2 row geometry still requires reshaping the edited row. Moth keeps a
-bounded 128-entry, 2 MiB LRU cache so the two pane projections and unchanged rows
-reuse layouts without retaining an unbounded chain of historical line prefixes.
-Performance snapshots report requests, hits, misses, shaping time, entry count,
-and cache cost.
+Moth's shaped-layout cache remains bounded to 128 entries and 2 MiB. Cache hits are
+now dictionary lookup plus an access-generation update. They do not search or
+shift an ordering array. Least-recently-used selection occurs only during bounded
+insertion-time eviction. Diagnostics expose eviction count so tests can confirm
+that stable hits do not trigger maintenance.
 
 ## Acceptance
 
-Hold a printable key for ten seconds, type rapidly on a long row, alternate typing
-and Backspace, paste several kilobytes, and type near the bottom viewport edge.
-There must be no growing visual backlog, rhythmic repeat stutter, event reordering,
-or disagreement between the text and caret presented in one frame.
+Native testing must cover clicks and menu commands behind motion storms, rapid text
+immediately followed by Ctrl commands, repeat followed by navigation, scroll then
+click, pointer capture loss, resize, and idle input. There must be no growing
+backlog, semantic reordering, repeated arbitrary presentations, or disagreement
+between caret and text. C2.4 acceptance is followed by the paired audit, not M3A.

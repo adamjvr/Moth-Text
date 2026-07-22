@@ -180,11 +180,17 @@ presentation against the active Moth sheet.
 
 ## Convergence C2.3 compatibility point
 
-C2.3 advances the Luna gitlink for reusable host-runtime behavior rather than
-product policy. Luna adds bounded SDL polling, committed-text coalescing,
-polling/backlog diagnostics, input-to-present timing, and restored kitchen-sink
-demo defaults. Moth consumes the ordered event batches and retains ownership of
-buffer mutation, history, caret/view state, and shaped-text cache policy.
+C2.3 advanced the Luna gitlink for committed-text authority, timing diagnostics,
+and restored kitchen-sink demo defaults. Its stateless raw-batch presentation
+policy failed graphical acceptance and is not an accepted compatibility contract.
+Moth retains ownership of buffer mutation, history, caret/view state, and
+shaped-text cache policy.
 
-The next compatibility point is M3A. Existing Luna tab primitives should be reused;
-Luna changes only when Moth exposes a genuinely reusable tab/sheet projection gap.
+
+## Convergence C2.4 compatibility point
+
+C2.4 advances the Luna gitlink for the persistent semantic scheduler and corrected
+presentation ownership. Moth adopts the exact Luna commit, removes linear LRU
+maintenance from its shaped-layout hit path, and validates 116 tests plus native
+interaction. The next compatibility decision is made by the paired audit; M3A is
+not started automatically.

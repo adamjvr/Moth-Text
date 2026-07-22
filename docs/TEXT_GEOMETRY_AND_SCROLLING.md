@@ -75,3 +75,11 @@ through one Moth insertion transaction and one caret-follow update. The shaped
 layout cache uses bounded LRU retention and exposes hit/miss and shaping-time
 snapshots for regression diagnostics without drawing a constantly changing status
 string that would itself defeat caching.
+
+
+## C2.4 scheduling correction
+
+Exact C2.2 row geometry and scrolling are unchanged. C2.4 prevents raw input
+acquisition chunks from inserting unrelated full-frame presentations before later
+clicks or commands. Text, caret, selection, hit testing, wrapping, wheel routing,
+and scrollbar behavior remain in the permanent native acceptance gate.

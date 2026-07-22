@@ -137,3 +137,11 @@ text transaction around the command. The same rule applies to navigation,
 pointer, resize, capture-loss, and focus-related host events. Disabled shortcuts
 remain consumed by the command authority and retain the existing one-shot text
 suppression path.
+
+
+## C2.4 scheduler guarantee
+
+Command key events are semantic ordering barriers in Luna's persistent scheduler.
+All committed text acquired before a command is delivered first; text acquired
+after it cannot merge backward across the command. A raw SDL polling limit cannot
+delay command execution behind intermediate presentations.

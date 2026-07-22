@@ -189,4 +189,24 @@ swift run MothTextLinux
 git diff --check
 ```
 
-The expected Moth total is 115 tests. C2.3 must be accepted before M3A real tabs.
+The C2.3 baseline was 115 tests, but C2.3 failed graphical responsiveness acceptance. C2.4 expects 116 tests and must pass native interaction before the paired audit. M3A remains blocked until that audit is reviewed.
+
+
+## C2.4 interactive runtime checkpoint
+
+Validate and commit Luna first with the focused scheduler and complete gates. Then
+advance the exact Luna gitlink and run:
+
+```bash
+swift build
+swift test --filter MothInputLatencyTests
+swift test
+./scripts/validate-paired-iteration.sh
+swift run MothTextLinux
+./scripts/smoke-test-plugin-host.sh
+git diff --check
+```
+
+Graphically test immediate clicks, menus, shortcuts, navigation, text repeat,
+scrolling, pane and scrollbar dragging, resize, and dirty-document dialogs. The
+expected Moth total is 116 tests. After acceptance, stop for the A1 paired audit.

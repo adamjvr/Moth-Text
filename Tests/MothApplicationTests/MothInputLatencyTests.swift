@@ -86,6 +86,7 @@ final class MothInputLatencyTests: XCTestCase {
         let afterEviction = shell.unicodeTextPerformance
         XCTAssertLessThanOrEqual(afterEviction.layoutCacheEntryCount, 128)
         XCTAssertLessThanOrEqual(afterEviction.layoutCacheCost, 2 * 1024 * 1024)
+        XCTAssertGreaterThan(afterEviction.layoutCacheEvictionCount, 0)
     }
 
     func testCoalescedTextAndNavigationRemainOrdered() {
@@ -108,4 +109,24 @@ final class MothInputLatencyTests: XCTestCase {
         XCTAssertEqual(shell.primaryView.caret.rawValue, 6)
         XCTAssertEqual(batch.stats.mergedTextInputEventCount, 1)
     }
+    func testStableLayoutCacheHitsDoNotTriggerEvictionMaintenance() throws {
+        MothUnicodeTextPainter.resetPerformanceCountersForTesting()
+        let text = "stable-cache-line: café Καλημέρα Привет"
+
+        _ = MothUnicodeTextPainter.geometry(for: text)
+        if MothUnicodeTextPainter.diagnostics.isUsingFallback {
+            throw XCTSkip("Unicode renderer unavailable in this test environment")
+        }
+        let afterInsert = MothUnicodeTextPainter.performanceSnapshot
+
+        for _ in 0..<1_000 {
+            _ = MothUnicodeTextPainter.geometry(for: text)
+        }
+        let afterHits = MothUnicodeTextPainter.performanceSnapshot
+
+        XCTAssertGreaterThanOrEqual(afterHits.layoutCacheHitCount, afterInsert.layoutCacheHitCount + 1_000)
+        XCTAssertEqual(afterHits.layoutCacheEvictionCount, afterInsert.layoutCacheEvictionCount)
+        XCTAssertEqual(afterHits.layoutCacheEntryCount, afterInsert.layoutCacheEntryCount)
+    }
+
 }

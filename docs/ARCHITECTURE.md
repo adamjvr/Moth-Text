@@ -381,3 +381,17 @@ hard ordering barriers.
 
 Moth's shaped-layout cache is bounded and observational diagnostics are not painted
 into the hot editor path. The document model remains single-document until M3A.
+
+
+## C2.4 interactive runtime boundary
+
+Luna separates raw SDL acquisition, persistent semantic scheduling, and
+presentation. Moth sees only ordered platform-neutral events and returns visible
+invalidation reasons. Raw acquisition budgets cannot become product frame policy.
+Clicks, commands, navigation, and capture loss are barriers; adjacent committed
+text may merge only before such a barrier.
+
+Moth's shaped-layout cache hit path is dictionary-based and performs no linear
+cache-order scan or array shift. Generation-based recency is updated on hits;
+bounded least-generation scans are confined to insertion-time eviction. The single-document product
+model remains unchanged pending the post-C2.4 audit and M3A.

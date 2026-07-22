@@ -185,16 +185,16 @@ C2.2 exit condition:
 
 ### Convergence C2.3 — Input-to-pixel latency and demo restoration
 
-**Status: implemented in this revision.**
+**Status: partially retained; scheduling policy rejected after graphical acceptance.**
 
 - bounded host polling by raw event count and elapsed monotonic time;
-- presentation between conservative backlog batches;
+- rejected behavior: presentation between arbitrary raw polling batches;
 - committed-text authority for printable input;
 - adjacent text-event coalescing with semantic ordering barriers;
 - input-to-present, polling, merge, and shaping-cache diagnostics;
 - bounded LRU shaped-layout retention;
 - restored default Luna kitchen-sink demo and 340-row scroll corpus;
-- four new Moth regressions and an expected 115-test total.
+- four regressions and a 115-test baseline retained.
 
 C2.3 exit condition:
 
@@ -203,9 +203,39 @@ C2.3 exit condition:
 > never reordered or dropped, and the layout cache cannot retain unbounded edited
 > line prefixes.
 
+
+### Convergence C2.4 — Interactive runtime and presentation scheduling
+
+**Status: implemented; native graphical acceptance required.**
+
+- persistent Luna semantic scheduler across raw acquisition passes;
+- pointer/text coalescing retained across passes;
+- clicks, commands, navigation, resize, focus/capture loss, and quit as barriers;
+- text dispatch on source idle, byte threshold, or monotonic latency deadline;
+- raw polling limits explicitly forbidden from defining frame boundaries;
+- VSync/presentation ownership separated from input acquisition;
+- generation-based Moth shaped-layout cache without linear hit-time order maintenance;
+- nine focused Luna scheduler regressions and one new Moth cache regression;
+- expected Moth total: 116 tests.
+
+C2.4 exit condition:
+
+> Native clicks, menus, commands, navigation, text repeat, scrolling, resizing, and
+> dialogs remain prompt under input backlogs. No raw acquisition boundary creates
+> an intermediate frame, no semantic event is reordered, and stable cache hits do
+> not perform linear maintenance.
+
+### A1 — Paired architecture and quality audit
+
+**Next after C2.4 acceptance.**
+
+Audit runtime ownership, presentation pacing, allocation/copy hot paths, Swift API
+quality, Sendable/locking claims, tests, documentation, roadmap consistency, and
+accepted debt. Publish critical/high/medium/low findings and reconvene before M3A.
+
 ### M3A — Document sheets and real tabs
 
-**Next.**
+**Deferred until A1 audit acceptance.**
 
 - Moth-owned `MothDocumentSheetID` and document-sheet collection;
 - one active sheet projected to the existing editor panes;
