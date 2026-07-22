@@ -28,14 +28,22 @@ public struct MothEditorViewportState: Hashable, Sendable {
 
     public var horizontalUTF8Column: Int
 
+    /// Fractional visual-row delta retained between precise wheel/trackpad
+    /// events. Viewport ownership stays local to one editor presentation.
+    public var verticalScrollRemainder: Double
+
     public init(
         firstVisibleLine: Int = 0,
         firstVisibleVisualRow: Int? = nil,
-        horizontalUTF8Column: Int = 0
+        horizontalUTF8Column: Int = 0,
+        verticalScrollRemainder: Double = 0
     ) {
         self.firstVisibleLine = max(0, firstVisibleLine)
         self.firstVisibleVisualRow = firstVisibleVisualRow.map { max(0, $0) }
         self.horizontalUTF8Column = max(0, horizontalUTF8Column)
+        self.verticalScrollRemainder = verticalScrollRemainder.isFinite
+            ? verticalScrollRemainder
+            : 0
     }
 }
 
@@ -71,7 +79,8 @@ public struct MothEditorViewState: Hashable, Sendable {
             MothEditorViewportState(
                 firstVisibleLine: $0,
                 firstVisibleVisualRow: viewport.firstVisibleVisualRow,
-                horizontalUTF8Column: viewport.horizontalUTF8Column
+                horizontalUTF8Column: viewport.horizontalUTF8Column,
+                verticalScrollRemainder: viewport.verticalScrollRemainder
             )
         } ?? viewport
         self.observedRevision = observedRevision

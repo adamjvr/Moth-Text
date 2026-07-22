@@ -77,7 +77,10 @@ safe document replacement:
 7. preserve the existing pane tree and split geometry.
 
 Cancel or failed Save As preserves the complete current document and view state.
-Real document sheets, tab targeting, and multi-document close policy remain M3.
+This replacement behavior remains intentionally transitional through C2.2. M3A
+replaces it with document sheets: `moth.file.new` will append and activate an
+untitled sheet, and close commands will target one stable sheet without replacing
+or discarding unrelated documents.
 
 ## Surface law
 
@@ -110,3 +113,17 @@ Complete paired validation:
 
 The graphical acceptance gate must additionally verify menus, disabled rows,
 command-palette filtering, focus return, and the dirty New File decision paths.
+
+
+## C2.2 command interaction note
+
+C2.2 does not add new product commands, but it strengthens the surfaces on which
+commands operate. Keyboard navigation and editing now reveal the caret through
+exact shaped geometry, and wheel/scrollbar interaction mutates pane-local viewport
+state outside the command dispatcher. Page Up/Page Down remain editor input
+operations until a later configurable key-binding phase promotes them to stable
+commands.
+
+After M3A, Ctrl/Cmd+Tab becomes document-tab traversal. Pane traversal will receive
+a distinct command and binding so the command vocabulary does not overload one
+shortcut with two product meanings.

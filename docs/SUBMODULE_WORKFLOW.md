@@ -43,3 +43,22 @@ empty palette result.
 
 Commit and push the validated Luna revision first. Then run
 `./scripts/update-luna.sh`, stage only the gitlink, and validate Moth normally.
+
+
+## C2.2 Luna checkpoint
+
+C2.2 advances the Luna gitlink for exact shaped-row insertion geometry and normal
+vertical scrolling mechanics. Commit and push the Luna revision only after the
+focused text-render, Phase 5F.2A, SDL-host, and complete validation gates pass.
+
+Then update Moth normally:
+
+```bash
+./scripts/update-luna.sh
+git add Dependencies/Luna-UI
+swift test --filter MothTextGeometryAndScrollingTests
+./scripts/validate-paired-iteration.sh
+```
+
+The Moth overlay must not contain files below `Dependencies/Luna-UI`; only the git
+submodule pointer is committed. M3A is the next compatibility checkpoint.

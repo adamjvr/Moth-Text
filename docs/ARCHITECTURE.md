@@ -257,11 +257,11 @@ LunaTextRender.LunaUnicodeTextRenderer
 ```
 
 Moth owns where and why text appears. Luna owns reusable shaping, rasterization,
-font discovery, cache behavior, and visible missing-glyph fallback. The first C2.1
-integration uses a shaped monospaced advance as the Luna text-view cell metric,
-keeping wrapping, caret, selection, hit testing, and painting aligned for the
-current monospaced editor surface. Full bidirectional layout, script segmentation,
-and multi-font fallback remain later LunaText work.
+font discovery, cache behavior, and visible missing-glyph fallback. C2.1 initially
+projected one rounded shaped advance into Luna's fixed-cell geometry. C2.2 replaces
+that approximation with explicit shaped insertion positions while retaining the
+same product/framework ownership boundary. Full bidirectional layout, script
+segmentation, and multi-font fallback remain later LunaText work.
 
 Renderer initialization and draw failure are retained as Moth diagnostic state.
 The application logs the first failure once, switches permanently to the visible
@@ -305,12 +305,62 @@ not know what New File, Save, Undo, or Select All means for Moth.
 and active pane identity. It is targeting metadata, not a container for product
 objects. Document, buffer, history, and view ownership remain in Moth.
 
-New File is intentionally a single-document replacement before M3. It reuses the
+New File is intentionally a single-document replacement before M3A. It reuses the
 existing dirty-document decision path, creates fresh product identities, resets
 view state, and preserves the Luna pane tree. Real tab/document targeting waits
-for the M3 workspace model.
+for the M3A document-sheet model.
 
 A command invocation from a disabled binding is consumed and reported without
 mutation. This is required because host text input can otherwise commit the
 physical shortcut letter after the keyboard event. Matching disabled quick-panel
 items remain searchable, preserving discoverability and the product-owned reason.
+
+
+## C2.2 exact text geometry and scrolling boundary
+
+The authoritative horizontal path is:
+
+```text
+Moth source row + source UTF-8 offsets
+        |
+        +--> Moth tab-expansion mapping
+        |
+        v
+LunaUnicodeTextLayout
+        +--> glyph placements
+        +--> grapheme insertion positions in 26.6 pixels
+        |
+        v
+LunaStaticTextRowGeometry
+        +--> wrapping
+        +--> caret and selection rectangles
+        +--> pointer hit testing
+        +--> row painting input
+```
+
+Moth retains the caret and selection as source-buffer UTF-8 offsets. Presentation
+may expand a tab into spaces, but maps every source insertion boundary to the
+corresponding shaped rendered boundary. No editor coordinate is derived from
+`characterCount * roundedCellAdvance` on the production Unicode path.
+
+The pane surface paints text before the caret. This makes the final caret rectangle
+an absolute framebuffer result of the same row geometry and prevents glyph masks
+from overwriting it.
+
+Vertical scrolling follows a parallel ownership rule:
+
+```text
+Luna host scroll event
+        -> reusable visual-row/scrollbar interaction
+        -> requested viewport row + fractional remainder
+        -> MothEditorViewportState for one pane
+```
+
+Wheel and touchpad input target the pane beneath the pointer without changing the
+active editing pane. Scrollbar mouse-down may activate the pane because the user is
+explicitly operating that pane's control. Moth stores each pane's first logical
+line, optional wrapped visual row, and precise-delta remainder. Luna owns event
+translation, clamping mechanics, lane paging, and thumb-drag geometry.
+
+C2.2 remains a single-document phase. Document sheets, real tabs, and target-aware
+close policy begin in M3A.

@@ -480,11 +480,11 @@ final class MothApplicationTests: XCTestCase {
         )
         let row = try XCTUnwrap(textView.layout().visibleLines.first)
         let start = LunaPointI(
-            x: row.textBounds.x + textView.metrics.glyphMetrics.advance,
+            x: row.textBounds.x + row.rowGeometry.x(forUTF8Offset: 1),
             y: row.rowBounds.y + row.rowBounds.h / 2
         )
         let end = LunaPointI(
-            x: row.textBounds.x + textView.metrics.glyphMetrics.advance * 9,
+            x: row.textBounds.x + row.rowGeometry.x(forUTF8Offset: 9),
             y: row.rowBounds.y + row.rowBounds.h / 2
         )
 
@@ -514,7 +514,7 @@ final class MothApplicationTests: XCTestCase {
         )
         let row = try XCTUnwrap(textView.layout().visibleLines.first)
         let click = LunaPointI(
-            x: row.textBounds.x + textView.metrics.glyphMetrics.advance * 2 + 1,
+            x: row.textBounds.x + row.rowGeometry.x(forUTF8Offset: 3),
             y: row.rowBounds.y + row.rowBounds.h / 2
         )
 
@@ -545,7 +545,7 @@ final class MothApplicationTests: XCTestCase {
         )
         let row = try XCTUnwrap(textView.layout().visibleLines.first)
         let click = LunaPointI(
-            x: row.textBounds.x + textView.metrics.glyphMetrics.advance + 1,
+            x: row.textBounds.x + row.rowGeometry.x(forUTF8Offset: 1),
             y: row.rowBounds.y + row.rowBounds.h / 2
         )
 
@@ -568,9 +568,9 @@ final class MothApplicationTests: XCTestCase {
             scene.paneTextView(for: MothApplicationShellScene.primaryPaneID)
         )
         let row = try XCTUnwrap(textView.layout().visibleLines.first)
-        func point(_ column: Int) -> LunaPointI {
+        func point(_ utf8Offset: Int) -> LunaPointI {
             LunaPointI(
-                x: row.textBounds.x + textView.metrics.glyphMetrics.advance * column + 1,
+                x: row.textBounds.x + row.rowGeometry.x(forUTF8Offset: utf8Offset),
                 y: row.rowBounds.y + row.rowBounds.h / 2
             )
         }

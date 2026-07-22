@@ -42,6 +42,7 @@ struct MothPaneEditorSurface {
             theme: MothApplicationTheme.theme,
             metrics: MothUnicodeTextPainter.editorMetrics,
             wrapMode: .soft,
+            geometryProvider: MothUnicodeTextPainter.geometryProvider,
             isFocused: isActive,
             isEditable: true,
             caret: isActive ? presentation.caret : nil,
@@ -49,7 +50,7 @@ struct MothPaneEditorSurface {
         )
     }
 
-        func draw(into framebuffer: inout LunaFramebuffer) {
+    func draw(into framebuffer: inout LunaFramebuffer) {
         let layout = textView.layout()
         let theme = textView.theme
         let style = LunaEditorVisualStyle(theme: theme)
@@ -75,13 +76,6 @@ struct MothPaneEditorSurface {
         for selection in layout.selectionRects {
             framebuffer.fillRect(selection.bounds, color: style.selectionBackground)
         }
-        if let thumb = layout.scrollbarThumbBounds {
-            framebuffer.fillRect(thumb, color: style.scrollbarThumb)
-        }
-        if let caret = layout.caretRect {
-            framebuffer.fillRect(caret, color: style.caret)
-        }
-
         if layout.gutterBounds.w > 0 {
             framebuffer.fillRect(
                 LunaRectI(
@@ -107,13 +101,23 @@ struct MothPaneEditorSurface {
                 )
             }
             MothUnicodeTextPainter.draw(
-                visible.visualText.text.replacingOccurrences(of: "\t", with: "    "),
+                visible.rowGeometry,
                 atX: visible.textBounds.x,
                 y: textY,
                 color: style.foreground,
                 maximumWidth: visible.textBounds.w,
                 into: &framebuffer
             )
+        }
+
+        if let thumb = layout.scrollbarThumbBounds {
+            framebuffer.fillRect(thumb, color: style.scrollbarThumb)
+        }
+
+        // Caret is intentionally painted after glyphs. Its absolute X coordinate
+        // comes from the same shaped row geometry that painted the text.
+        if let caret = layout.caretRect {
+            framebuffer.fillRect(caret, color: style.caret)
         }
 
         if textView.isFocused {

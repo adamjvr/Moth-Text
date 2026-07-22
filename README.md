@@ -183,9 +183,9 @@ production document text through Luna's ASCII-only debug bitmap renderer:
 - MothApplication consumes Luna's optional `LunaTextRender` product;
 - HarfBuzz-shaped UTF-8 runs and cached FreeType glyph masks paint editor rows,
   filenames, paths, status messages, and tab titles;
-- the shaped monospaced cell advance feeds the existing Luna text-view metrics so
-  painting, wrapping, caret placement, selection rectangles, and hit testing use
-  one cell width;
+- the first integration feeds a shaped monospaced advance into Luna text-view
+  metrics; C2.2 later replaces this fixed-cell approximation with exact shaped
+  insertion positions;
 - unsupported glyphs display an explicit fallback box instead of an invisible
   advanced cell;
 - dirty and active-pane indicators are Moth-owned framebuffer geometry rather
@@ -233,11 +233,37 @@ Implemented in this revision:
 
 See [`docs/COMMANDS.md`](docs/COMMANDS.md) for the command contract.
 
-### Next: M2.2B2 — Visible Find/Replace convergence
+### Convergence C2.2 — Exact text geometry and vertical scrolling
 
-The next product slice connects Luna's visible find/replace panel to Moth's
-history-aware find session. Find Next, Find Previous, Replace, and Replace All
-will use the same command authority, with Replace All retained as one Undo unit.
+Implemented after graphical M2.2B1 validation exposed cumulative caret drift on
+long rapidly typed rows and the absence of normal wheel/trackpad input:
+
+- Luna's shaped UTF-8 insertion positions, retained in HarfBuzz 26.6 coordinates,
+  now drive soft wrapping, caret placement, selection rectangles, and hit testing;
+- Moth paints each visible row from the same rendered row text and paints the
+  caret after glyphs so the insertion indicator cannot be covered;
+- tab expansion preserves source UTF-8 offsets while using rendered-space shaped
+  positions;
+- platform-neutral wheel and trackpad events route to the pane beneath the pointer
+  without changing the active editing pane;
+- precise scroll deltas retain a pane-local fractional visual-row remainder;
+- scrollbar lane clicks page, thumb dragging captures the pointer, and all
+  viewport requests clamp to legal wrapped visual rows;
+- Page Up/Page Down, caret-follow scrolling, selection-edge autoscroll, Unicode
+  fallback diagnostics, and independent pane view state remain intact;
+- eight Moth regressions bring the expected total to 111 tests, while Luna adds
+  focused shaping, geometry, SDL wheel, and scrollbar coverage.
+
+C2.2 deliberately does not implement multiple documents or real tabs. New File
+continues to replace the current single document through the protected M2.2B1
+lifecycle until M3A installs document sheets.
+
+### Next: M3A — Document sheets and real tabs
+
+The next product slice introduces a Moth-owned document-sheet collection and
+projects it through Luna's existing tab mechanics. Ctrl/Cmd+N will append and
+activate a new untitled sheet instead of replacing the current document. Visible
+Find/Replace follows after the multi-document targeting model is established.
 
 See:
 
@@ -246,6 +272,7 @@ See:
 - [`docs/ROADMAP.md`](docs/ROADMAP.md)
 - [`docs/SUBMODULE_WORKFLOW.md`](docs/SUBMODULE_WORKFLOW.md)
 - [`docs/PAIRED_ITERATION_PROTOCOL.md`](docs/PAIRED_ITERATION_PROTOCOL.md)
+- [`docs/TEXT_GEOMETRY_AND_SCROLLING.md`](docs/TEXT_GEOMETRY_AND_SCROLLING.md)
 
 ## Build
 
@@ -308,10 +335,11 @@ status bar, logs the retained error once, and keeps the visible ASCII diagnostic
 fallback usable. Horizontal movement and deletion step across extended grapheme
 clusters.
 
-M2.2B1 replaces the decorative menu labels with an interactive Luna menu bar and
-adds the visible command palette. Keyboard, menu, palette, and tests invoke the
-same Moth command IDs and availability rules. Ctrl/Cmd+N safely replaces the
-single current document for now; real multiple-document tabs remain M3 scope.
+M2.2B1 replaces decorative menu labels with interactive command surfaces. C2.2
+then makes shaped insertion geometry authoritative for rendering and interaction,
+adds normal pane-local vertical wheel/trackpad scrolling, and makes the scrollbar
+interactive. Ctrl/Cmd+N still safely replaces the single current document for
+now; M3A is the next slice and will introduce real document tabs.
 
 ## License
 

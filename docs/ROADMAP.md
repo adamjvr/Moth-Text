@@ -143,7 +143,7 @@ S1 exit condition:
 
 ### M2.2B1 — Unified command authority and New File
 
-**Status: implemented in this revision.**
+**Status: complete and accepted.**
 
 - stable namespaced Moth command IDs;
 - Luna command runtime reused without moving product policy into Luna;
@@ -162,22 +162,62 @@ M2.2B1 exit condition:
 > dirty content without an explicit decision, and failed/cancelled Save As leaves
 > the current document intact.
 
-### M2.2B2 — Visible Find/Replace convergence
+### Convergence C2.2 — Exact text geometry and vertical scrolling
+
+**Status: implemented in this revision.**
+
+- stable shaped grapheme insertion positions retained in 26.6 coordinates;
+- one row geometry for soft wrap, caret, selection, hit testing, and painting;
+- source/rendered UTF-8 mapping for tab expansion;
+- caret painted after glyphs;
+- platform-neutral scroll events and SDL wheel/trackpad translation;
+- pane-local precise-delta accumulation;
+- wheel targeting by hovered pane without active-pane theft;
+- scrollbar lane paging, captured thumb dragging, and viewport clamping;
+- eight new Moth regressions and an expected 111-test total.
+
+C2.2 exit condition:
+
+> Rapid long-line input cannot produce cumulative caret drift; caret, selection,
+> hit testing, wrapping, and painted text agree on shaped insertion positions.
+> Wheel, precise touchpad, Page Up/Page Down, scrollbar paging, and thumb dragging
+> update only the intended pane and never exceed legal wrapped visual rows.
+
+### M3A — Document sheets and real tabs
 
 **Next.**
+
+- Moth-owned `MothDocumentSheetID` and document-sheet collection;
+- one active sheet projected to the existing editor panes;
+- Ctrl/Cmd+N appending a new untitled sheet instead of replacing the current one;
+- Open reusing an already-open canonical file or appending a new file-backed sheet;
+- real tab projection, activation, close targeting, and per-sheet dirty prompts;
+- Ctrl/Cmd+Tab reassigned from pane traversal to document-tab traversal;
+- Open Files projection from the same sheet collection.
+
+M3A exit condition:
+
+> Multiple clean or dirty documents remain open simultaneously, every visible tab
+> targets one stable Moth sheet, and New File never discards or replaces another
+> document. Closing a dirty tab affects only its targeted sheet.
+
+### M2.2B2 — Visible Find/Replace convergence
+
+**Immediately after M3A.**
 
 - visible Luna find/replace panel backed by history-aware Moth mutation;
 - Find Next and Find Previous command routing;
 - Replace and Replace All command routing;
 - Replace All retained as one Undo group;
 - overlay focus ownership and Escape return to the active editor pane;
-- keyboard, menu, palette, and panel actions sharing the M2.2B1 command authority.
+- keyboard, menu, palette, and panel actions sharing the M2.2B1 command authority;
+- commands targeting the active document sheet introduced by M3A.
 
 ### M2.2B3 — External-change and session groundwork
 
 - external-change reload/conflict presentation;
 - recent-file model;
-- first session metadata schema before M3 document sheets.
+- first session metadata schema before broader M3 editor-group and restoration work.
 
 ## M3 — Workspace fundamentals
 

@@ -131,4 +131,28 @@ Acceptance requires:
 - graphical keyboard/menu/palette equivalence;
 - clean and dirty New File checks covering Save, Don't Save, and Cancel.
 
-The next paired slice is M2.2B2 visible Find/Replace convergence.
+## C2.2 exact geometry and scrolling checkpoint
+
+C2.2 is a Luna-first reusable correction. Luna must be committed and pass:
+
+```bash
+swift test --filter LunaTextRenderTests
+swift test --filter LunaUIPhase5F2ATests
+swift test --filter LunaHostSDLApplicationTests
+./scripts/validate-iteration.sh
+```
+
+After Moth advances the gitlink, acceptance additionally requires:
+
+```bash
+swift test --filter MothTextGeometryAndScrollingTests
+./scripts/validate-paired-iteration.sh
+```
+
+The graphical gate must exercise rapid long-line typing, combining characters,
+wheel and touchpad input over each pane, Page Up/Page Down, scrollbar lane paging,
+thumb dragging, capture loss, and caret-follow scrolling. The caret must remain on
+the shaped insertion position after every operation.
+
+The next paired slice is M3A document sheets and real tabs. M2.2B2 visible
+Find/Replace follows after the active-document targeting model exists.

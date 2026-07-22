@@ -47,7 +47,7 @@ final class MothGraphemeInteractionTests: XCTestCase {
         )
         let row = try XCTUnwrap(textView.layout().visibleLines.first)
         let pointAfterCombinedCharacter = LunaPointI(
-            x: row.textBounds.x + textView.metrics.glyphMetrics.advance * 2,
+            x: row.textBounds.x + row.rowGeometry.x(forUTF8Offset: 4),
             y: row.rowBounds.y + row.rowBounds.h / 2
         )
 

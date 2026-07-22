@@ -33,6 +33,121 @@ public struct MothUnicodeTextDiagnostics: Hashable, Sendable {
     }
 }
 
+private struct MothExpandedTextRun: Sendable {
+    struct Boundary: Sendable {
+        var sourceUTF8Offset: Int
+        var renderedUTF8Offset: Int
+    }
+
+    var renderedText: String
+    var boundaries: [Boundary]
+
+    static func expandingTabs(
+        in sourceText: String,
+        tabWidth: Int = 4,
+        startingVisualColumn: Int = 0
+    ) -> MothExpandedTextRun {
+        let width = max(1, tabWidth)
+        var rendered = ""
+        rendered.reserveCapacity(sourceText.count)
+        var sourceOffset = 0
+        var renderedOffset = 0
+        var renderedColumn = max(0, startingVisualColumn)
+        var boundaries = [
+            Boundary(
+                sourceUTF8Offset: 0,
+                renderedUTF8Offset: 0
+            ),
+        ]
+
+        for character in sourceText {
+            let sourceLength = String(character).utf8.count
+            let replacement: String
+            if character == "\t" {
+                let spaceCount = width - (renderedColumn % width)
+                replacement = String(repeating: " ", count: spaceCount)
+                renderedColumn += spaceCount
+            } else {
+                replacement = String(character)
+                renderedColumn += 1
+            }
+            rendered.append(replacement)
+            sourceOffset += sourceLength
+            renderedOffset += replacement.utf8.count
+            boundaries.append(
+                Boundary(
+                    sourceUTF8Offset: sourceOffset,
+                    renderedUTF8Offset: renderedOffset
+                )
+            )
+        }
+
+        return MothExpandedTextRun(
+            renderedText: rendered,
+            boundaries: boundaries
+        )
+    }
+
+    func slice(sourceUTF8Range requestedRange: Range<Int>) -> MothExpandedTextRun {
+        let sourceLength = boundaries.last?.sourceUTF8Offset ?? 0
+        let lower = min(max(0, requestedRange.lowerBound), sourceLength)
+        let upper = min(max(lower, requestedRange.upperBound), sourceLength)
+        let lowerIndex = boundaryIndex(atOrBefore: lower)
+        let upperIndex = boundaryIndex(atOrBefore: upper)
+        let lowerBoundary = boundaries[lowerIndex]
+        let upperBoundary = boundaries[upperIndex]
+
+        let lowerUTF8 = renderedText.utf8.index(
+            renderedText.utf8.startIndex,
+            offsetBy: lowerBoundary.renderedUTF8Offset
+        )
+        let upperUTF8 = renderedText.utf8.index(
+            renderedText.utf8.startIndex,
+            offsetBy: upperBoundary.renderedUTF8Offset
+        )
+        let lowerString = String.Index(lowerUTF8, within: renderedText)
+            ?? renderedText.startIndex
+        let upperString = String.Index(upperUTF8, within: renderedText)
+            ?? renderedText.endIndex
+        let slicedText = String(renderedText[lowerString..<upperString])
+        let slicedBoundaries = boundaries[lowerIndex...upperIndex].map { boundary in
+            Boundary(
+                sourceUTF8Offset: boundary.sourceUTF8Offset - lowerBoundary.sourceUTF8Offset,
+                renderedUTF8Offset: boundary.renderedUTF8Offset - lowerBoundary.renderedUTF8Offset
+            )
+        }
+        return MothExpandedTextRun(
+            renderedText: slicedText,
+            boundaries: Array(slicedBoundaries)
+        )
+    }
+
+    private func boundaryIndex(atOrBefore requestedOffset: Int) -> Int {
+        var low = 0
+        var high = boundaries.count
+        while low < high {
+            let middle = (low + high) / 2
+            if boundaries[middle].sourceUTF8Offset <= requestedOffset {
+                low = middle + 1
+            } else {
+                high = middle
+            }
+        }
+        return max(0, low - 1)
+    }
+}
+
+private struct MothExpandedTextCacheKey: Hashable, Sendable {
+    var sourceText: String
+    var tabWidth: Int
+}
+
+struct MothUnicodeTextGeometryProvider: LunaStaticTextGeometryProvider, Sendable {
+    func geometry(for request: LunaStaticTextGeometryRequest) -> LunaStaticTextRowGeometry {
+        MothUnicodeTextPainter.geometry(for: request)
+    }
+}
+
 final class MothUnicodeTextRendererState: @unchecked Sendable {
     typealias RendererFactory = (Double) throws -> LunaUnicodeTextRenderer
     typealias Logger = (String) -> Void
@@ -44,6 +159,15 @@ final class MothUnicodeTextRendererState: @unchecked Sendable {
     private var fontPath: String?
     private var failureDescription: String?
     private var didLogFailure: Bool
+
+    private static let maximumCacheEntryCount = 256
+    private static let maximumCacheCost = 2 * 1024 * 1024
+    private var expandedRunCache: [MothExpandedTextCacheKey: MothExpandedTextRun] = [:]
+    private var expandedRunCacheOrder: [MothExpandedTextCacheKey] = []
+    private var expandedRunCacheCost = 0
+    private var layoutCache: [String: LunaUnicodeTextLayout] = [:]
+    private var layoutCacheOrder: [String] = []
+    private var layoutCacheCost = 0
 
     init(
         pointSize: Double = 10,
@@ -92,8 +216,57 @@ final class MothUnicodeTextRendererState: @unchecked Sendable {
         }
     }
 
+    func geometry(
+        for request: LunaStaticTextGeometryRequest,
+        fallbackAdvance: Int,
+        tabWidth: Int = 4
+    ) -> LunaStaticTextRowGeometry {
+        let expandedLine = expandedRun(
+            for: request.completeLineText,
+            tabWidth: tabWidth
+        )
+        let expanded = expandedLine.slice(sourceUTF8Range: request.utf8Range)
+        let sourceText = request.sourceText
+
+        guard let activeRenderer = currentRenderer() else {
+            return fallbackGeometry(
+                sourceText: sourceText,
+                expanded: expanded,
+                advance: fallbackAdvance
+            )
+        }
+
+        do {
+            let layout = try cachedLayout(
+                for: expanded.renderedText,
+                renderer: activeRenderer
+            )
+            let positions = expanded.boundaries.map { boundary in
+                LunaStaticTextInsertionPosition(
+                    utf8Offset: boundary.sourceUTF8Offset,
+                    x26Dot6: layout.insertionX26Dot6(
+                        forUTF8Offset: boundary.renderedUTF8Offset
+                    )
+                )
+            }
+            return LunaStaticTextRowGeometry(
+                sourceText: sourceText,
+                renderedText: expanded.renderedText,
+                insertionPositions: positions,
+                advance26Dot6: layout.advance26Dot6
+            )
+        } catch {
+            transitionToFallback(after: error)
+            return fallbackGeometry(
+                sourceText: sourceText,
+                expanded: expanded,
+                advance: fallbackAdvance
+            )
+        }
+    }
+
     func draw(
-        _ text: String,
+        _ geometry: LunaStaticTextRowGeometry,
         atX x: Int,
         baselineY: Int,
         color: LunaRGBA8,
@@ -101,10 +274,13 @@ final class MothUnicodeTextRendererState: @unchecked Sendable {
         into framebuffer: inout LunaFramebuffer
     ) -> Bool {
         guard let activeRenderer = currentRenderer() else { return false }
-
         do {
-            _ = try activeRenderer.draw(
-                text,
+            let layout = try cachedLayout(
+                for: geometry.renderedText,
+                renderer: activeRenderer
+            )
+            try activeRenderer.draw(
+                layout,
                 atX: x,
                 baselineY: baselineY,
                 color: color,
@@ -116,6 +292,150 @@ final class MothUnicodeTextRendererState: @unchecked Sendable {
             transitionToFallback(after: error)
             return false
         }
+    }
+
+    func draw(
+        _ text: String,
+        atX x: Int,
+        baselineY: Int,
+        color: LunaRGBA8,
+        maximumWidth: Int?,
+        into framebuffer: inout LunaFramebuffer
+    ) -> Bool {
+        guard let activeRenderer = currentRenderer() else { return false }
+
+        do {
+            let layout = try cachedLayout(for: text, renderer: activeRenderer)
+            try activeRenderer.draw(
+                layout,
+                atX: x,
+                baselineY: baselineY,
+                color: color,
+                maximumWidth: maximumWidth,
+                into: &framebuffer
+            )
+            return true
+        } catch {
+            transitionToFallback(after: error)
+            return false
+        }
+    }
+
+    private func expandedRun(
+        for sourceText: String,
+        tabWidth: Int
+    ) -> MothExpandedTextRun {
+        let key = MothExpandedTextCacheKey(
+            sourceText: sourceText,
+            tabWidth: max(1, tabWidth)
+        )
+
+        lock.lock()
+        if let cached = expandedRunCache[key] {
+            lock.unlock()
+            return cached
+        }
+        lock.unlock()
+
+        let expanded = MothExpandedTextRun.expandingTabs(
+            in: sourceText,
+            tabWidth: key.tabWidth
+        )
+        let cost = sourceText.utf8.count
+            + expanded.renderedText.utf8.count
+            + expanded.boundaries.count * MemoryLayout<MothExpandedTextRun.Boundary>.stride
+        guard cost <= Self.maximumCacheCost else { return expanded }
+
+        lock.lock()
+        if expandedRunCache[key] == nil {
+            expandedRunCache[key] = expanded
+            expandedRunCacheOrder.append(key)
+            expandedRunCacheCost += cost
+            trimExpandedRunCache()
+        }
+        let result = expandedRunCache[key] ?? expanded
+        lock.unlock()
+        return result
+    }
+
+    private func cachedLayout(
+        for text: String,
+        renderer activeRenderer: LunaUnicodeTextRenderer
+    ) throws -> LunaUnicodeTextLayout {
+        lock.lock()
+        if let cached = layoutCache[text] {
+            lock.unlock()
+            return cached
+        }
+        lock.unlock()
+
+        let layout = try activeRenderer.layout(text)
+        let cost = text.utf8.count
+            + layout.glyphs.count * MemoryLayout<LunaUnicodeGlyphPlacement>.stride
+            + layout.insertionPositions.count * MemoryLayout<LunaUnicodeTextInsertionPosition>.stride
+        guard cost <= Self.maximumCacheCost else { return layout }
+
+        lock.lock()
+        if renderer === activeRenderer, layoutCache[text] == nil {
+            layoutCache[text] = layout
+            layoutCacheOrder.append(text)
+            layoutCacheCost += cost
+            trimLayoutCache()
+        }
+        let result = layoutCache[text] ?? layout
+        lock.unlock()
+        return result
+    }
+
+    private func trimExpandedRunCache() {
+        while expandedRunCache.count > Self.maximumCacheEntryCount
+            || expandedRunCacheCost > Self.maximumCacheCost {
+            guard !expandedRunCacheOrder.isEmpty else { break }
+            let key = expandedRunCacheOrder.removeFirst()
+            guard let removed = expandedRunCache.removeValue(forKey: key) else { continue }
+            expandedRunCacheCost -= key.sourceText.utf8.count
+                + removed.renderedText.utf8.count
+                + removed.boundaries.count * MemoryLayout<MothExpandedTextRun.Boundary>.stride
+        }
+    }
+
+    private func trimLayoutCache() {
+        while layoutCache.count > Self.maximumCacheEntryCount
+            || layoutCacheCost > Self.maximumCacheCost {
+            guard !layoutCacheOrder.isEmpty else { break }
+            let text = layoutCacheOrder.removeFirst()
+            guard let removed = layoutCache.removeValue(forKey: text) else { continue }
+            layoutCacheCost -= text.utf8.count
+                + removed.glyphs.count * MemoryLayout<LunaUnicodeGlyphPlacement>.stride
+                + removed.insertionPositions.count * MemoryLayout<LunaUnicodeTextInsertionPosition>.stride
+        }
+    }
+
+    private func fallbackGeometry(
+        sourceText: String,
+        expanded: MothExpandedTextRun,
+        advance: Int
+    ) -> LunaStaticTextRowGeometry {
+        let cellAdvance = max(1, advance)
+        let positions = expanded.boundaries.map { boundary in
+            let utf8End = expanded.renderedText.utf8.index(
+                expanded.renderedText.utf8.startIndex,
+                offsetBy: boundary.renderedUTF8Offset
+            )
+            let prefixEnd = String.Index(utf8End, within: expanded.renderedText)
+                ?? expanded.renderedText.endIndex
+            let characterCount = expanded.renderedText[..<prefixEnd].count
+            return LunaStaticTextInsertionPosition(
+                utf8Offset: boundary.sourceUTF8Offset,
+                x26Dot6: Int32(characterCount * cellAdvance * 64)
+            )
+        }
+        return LunaStaticTextRowGeometry(
+            sourceText: sourceText,
+            renderedText: expanded.renderedText,
+            insertionPositions: positions,
+            advance26Dot6: positions.last?.x26Dot6 ?? 0
+        )
     }
 
     private func currentRenderer() -> LunaUnicodeTextRenderer? {
@@ -130,6 +450,12 @@ final class MothUnicodeTextRendererState: @unchecked Sendable {
 
         lock.lock()
         renderer = nil
+        expandedRunCache.removeAll(keepingCapacity: false)
+        expandedRunCacheOrder.removeAll(keepingCapacity: false)
+        expandedRunCacheCost = 0
+        layoutCache.removeAll(keepingCapacity: false)
+        layoutCacheOrder.removeAll(keepingCapacity: false)
+        layoutCacheCost = 0
         if failureDescription == nil {
             failureDescription = description
         }
@@ -156,6 +482,7 @@ final class MothUnicodeTextRendererState: @unchecked Sendable {
 enum MothUnicodeTextPainter {
     private static let state = MothUnicodeTextRendererState()
 
+    static let geometryProvider = MothUnicodeTextGeometryProvider()
     static var diagnostics: MothUnicodeTextDiagnostics { state.diagnostics }
 
     private static let shapedCellAdvance = state.monospacedAdvance(fallback: 6)
@@ -171,6 +498,48 @@ enum MothUnicodeTextPainter {
         metrics.lineHeight = 14
         return metrics
     }()
+
+    static func geometry(
+        for request: LunaStaticTextGeometryRequest
+    ) -> LunaStaticTextRowGeometry {
+        state.geometry(
+            for: request,
+            fallbackAdvance: LunaDebugBitmapTextRenderer.advance
+        )
+    }
+
+    static func geometry(for sourceText: String) -> LunaStaticTextRowGeometry {
+        geometry(for: LunaStaticTextGeometryRequest(sourceText: sourceText))
+    }
+
+    static func draw(
+        _ geometry: LunaStaticTextRowGeometry,
+        atX x: Int,
+        y: Int,
+        color: LunaRGBA8,
+        maximumWidth: Int? = nil,
+        into framebuffer: inout LunaFramebuffer
+    ) {
+        if state.draw(
+            geometry,
+            atX: x,
+            baselineY: y + 10,
+            color: color,
+            maximumWidth: maximumWidth,
+            into: &framebuffer
+        ) {
+            return
+        }
+
+        LunaDebugBitmapTextRenderer.draw(
+            asciiVisibleFallback(for: geometry.renderedText),
+            atX: x,
+            y: y,
+            color: color,
+            maximumWidth: maximumWidth,
+            into: &framebuffer
+        )
+    }
 
     static func draw(
         _ text: String,

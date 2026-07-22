@@ -154,5 +154,25 @@ searches. Luna now keeps matching disabled items discoverable while retaining
 their disabled metadata, allowing products to explain why a command is currently
 unavailable without making it vanish.
 
-M2.2B2 will reuse the existing Luna find-panel presentation. Further Luna changes
-remain demand-driven and must represent genuinely reusable seams.
+## Convergence C2.2 compatibility point
+
+C2.2 advances the Luna gitlink for reusable text and host-input mechanics:
+
+- `LunaUnicodeTextLayout.insertionPositions` and UTF-8/X conversion helpers;
+- `LunaStaticTextRowGeometry` and `LunaStaticTextGeometryProvider`;
+- shaped-geometry soft wrapping, caret, selection, and hit testing in
+  `LunaStaticTextView`;
+- `LunaScrollEvent` and `LunaHostInputEvent.scroll`;
+- SDL wheel/precise-delta translation inside LunaHostSDL;
+- `LunaStaticTextScrollInteraction` for wheel accumulation, lane paging, and
+  thumb dragging.
+
+Moth supplies a geometry provider that expands tabs while retaining source UTF-8
+boundaries, stores pane-local viewport and fractional remainder state, and paints
+rows/carets in product order. Luna does not own Moth buffers, caret meaning,
+active-pane policy, or document tabs.
+
+The next paired slice is M3A document sheets and real tabs. It should reuse Luna's
+existing generic tab strip and workspace mechanics unless implementation exposes a
+new product-neutral seam. M2.2B2 then reuses the existing Luna find-panel
+presentation against the active Moth sheet.

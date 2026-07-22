@@ -6,6 +6,7 @@ import LunaCore
 import LunaHostCore
 import LunaInput
 import LunaRender
+import LunaUI
 @testable import MothApplication
 
 final class MothUnicodeRenderingTests: XCTestCase {
@@ -21,10 +22,11 @@ final class MothUnicodeRenderingTests: XCTestCase {
             scene.paneTextView(for: MothApplicationShellScene.primaryPaneID)
         )
         let row = try XCTUnwrap(textView.layout().visibleLines.first)
-        let cellX = row.textBounds.x + textView.metrics.glyphMetrics.advance
+        let glyphStartX = row.textBounds.x + row.rowGeometry.x(forUTF8Offset: 1)
+        let glyphEndX = row.textBounds.x + row.rowGeometry.x(forUTF8Offset: 3)
         var colors = Set<[UInt8]>()
         for y in (row.rowBounds.y + 1)..<min(row.rowBounds.y + row.rowBounds.h - 1, framebuffer.height) {
-            for x in cellX..<min(cellX + textView.metrics.glyphMetrics.advance, framebuffer.width) {
+            for x in glyphStartX..<min(max(glyphStartX + 1, glyphEndX), framebuffer.width) {
                 colors.insert(pixel(in: framebuffer, x: x, y: y))
             }
         }
@@ -100,6 +102,15 @@ final class MothUnicodeRenderingTests: XCTestCase {
         XCTAssertTrue(diagnostics.failureDescription?.contains("unavailable") == true)
         XCTAssertEqual(logMessages.count, 1)
         XCTAssertTrue(logMessages[0].contains("diagnostic fallback active"))
+
+        let geometry = state.geometry(
+            for: LunaStaticTextGeometryRequest(sourceText: "fallback"),
+            fallbackAdvance: LunaDebugBitmapTextRenderer.advance
+        )
+        XCTAssertEqual(
+            geometry.x(forUTF8Offset: "fallback".utf8.count),
+            "fallback".count * LunaDebugBitmapTextRenderer.advance
+        )
     }
 
     private func markerPixels(in framebuffer: LunaFramebuffer) -> [[UInt8]] {
