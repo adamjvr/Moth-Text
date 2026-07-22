@@ -95,6 +95,32 @@ C2 exit condition:
 > originating view's editor state, keep revisions monotonic, and report clean
 > exactly when logical history returns to the saved checkpoint.
 
+### Convergence C2.1 — Unicode text painting and visible-state correction
+
+**Status: implemented in this revision; graphical validation required.**
+
+Delivered:
+
+- optional Luna `LunaTextRender` dependency in MothApplication;
+- shaped and cached Unicode painting for editor rows and user-facing shell text;
+- monospaced shaped advance projected into Luna text-view metrics;
+- explicit visible fallback for missing glyphs;
+- geometric dirty and active-pane indicators;
+- regressions that fail when accented text paints as an advanced blank;
+- source guards preventing the Unicode bullet-marker regression.
+
+Exit condition:
+
+> Precomposed and decomposed accents, common UI punctuation, Greek, Cyrillic,
+> filenames, and status messages paint visibly in the graphical Moth shell while
+> all 71 C2 tests remain green and dirty/active indicators stay visible.
+
+Deferred:
+
+- Ctrl/Cmd+N: M2.2B command routing;
+- real tabs, multiple open documents, clickable Open Files rows, and folders: M3;
+- complete bidi/script segmentation and multi-font fallback: later LunaText work.
+
 ### M2.2B — Command and visible find convergence
 
 **Next.**

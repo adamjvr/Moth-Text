@@ -230,3 +230,32 @@ unstable until documents, commands, settings, and workspace ownership mature.
 6. Product history, grouping, dirty state, and editor meaning remain Moth-owned.
 7. Reusable behavior is promoted to Luna only when product-neutral and useful to
    another plausible application.
+
+## C2.1 Unicode rendering boundary
+
+`LunaDebugBitmapTextRenderer` is diagnostic-only and must not paint production
+Moth document text or user-provided filenames. The production path is:
+
+```text
+Moth text / filename / status string
+        |
+        v
+MothUnicodeTextPainter (placement policy)
+        |
+        v
+LunaTextRender.LunaUnicodeTextRenderer
+        |
+        +--> HarfBuzz UTF-8 clusters and advances
+        +--> FreeType glyph masks and glyph cache
+        +--> LunaRender CPU framebuffer blitter
+```
+
+Moth owns where and why text appears. Luna owns reusable shaping, rasterization,
+font discovery, cache behavior, and visible missing-glyph fallback. The first C2.1
+integration uses a shaped monospaced advance as the Luna text-view cell metric,
+keeping wrapping, caret, selection, hit testing, and painting aligned for the
+current monospaced editor surface. Full bidirectional layout, script segmentation,
+and multi-font fallback remain later LunaText work.
+
+Dirty and active-pane state remain Moth policy and are painted as explicit
+framebuffer geometry rather than encoded as font glyphs.

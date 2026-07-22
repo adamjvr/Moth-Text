@@ -175,6 +175,27 @@ Implemented in Moth while Luna's C1B source API remains stable:
 - a bounded per-document history-memory budget;
 - Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, and Ctrl+Y routing in the graphical shell.
 
+### Convergence C2.1 — Unicode text painting and visible-state correction
+
+Implemented after graphical C2 validation exposed that Moth was still painting
+production document text through Luna's ASCII-only debug bitmap renderer:
+
+- MothApplication consumes Luna's optional `LunaTextRender` product;
+- HarfBuzz-shaped UTF-8 runs and cached FreeType glyph masks paint editor rows,
+  filenames, paths, status messages, and tab titles;
+- the shaped monospaced cell advance feeds the existing Luna text-view metrics so
+  painting, wrapping, caret placement, selection rectangles, and hit testing use
+  one cell width;
+- unsupported glyphs display an explicit fallback box instead of an invisible
+  advanced cell;
+- dirty and active-pane indicators are Moth-owned framebuffer geometry rather
+  than Unicode bullet characters;
+- focused regressions cover accented text and visible dirty-state geometry.
+
+C2.1 deliberately does not implement Ctrl+N, multiple documents, real tabs, or
+folder-row activation. Ctrl+N remains M2.2B command scope; real documents/tabs and
+project navigation remain M3 workspace scope.
+
 ### Next: M2.2B — Command and visible find convergence
 
 The next product slice connects Moth's typed command authority to Luna menus,
@@ -233,8 +254,9 @@ mouse selection, and document-owned Undo/Redo remain active together.
 
 C2 development diagnostics expose the monotonic buffer revision, logical history
 state, dirty state, active pane, and retained Undo/Redo group counts in the status
-bar. The visible Edit menu is still presentation-only; unified command/menu/palette
-routing is intentionally deferred to M2.2B.
+bar. C2.1 paints document and user-facing text through LunaTextRender and uses
+geometry for dirty/active indicators. The visible Edit menu is still
+presentation-only; unified command/menu/palette routing is deferred to M2.2B.
 
 ## License
 

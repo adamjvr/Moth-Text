@@ -4,7 +4,8 @@
 //
 // Moth-owned projection of one editor view into Luna's reusable pane-bound,
 // soft-wrapped text surface. Luna owns geometry, clipping, wrapping, hit testing,
-// and accessibility coordinates. Moth owns the document and per-view state.
+// shaping, glyph rasterization, and accessibility coordinates. Moth owns the
+// document and per-view state.
 
 import LunaCore
 import LunaRender
@@ -39,7 +40,7 @@ struct MothPaneEditorSurface {
             scrollTopVisualRow: viewState.viewport.firstVisibleVisualRow,
             currentLineIndex: presentation.caret.location.lineIndex,
             theme: MothApplicationTheme.theme,
-            metrics: .demo,
+            metrics: MothUnicodeTextPainter.editorMetrics,
             wrapMode: .soft,
             isFocused: isActive,
             isEditable: true,
@@ -48,7 +49,7 @@ struct MothPaneEditorSurface {
         )
     }
 
-    func draw(into framebuffer: inout LunaFramebuffer) {
+        func draw(into framebuffer: inout LunaFramebuffer) {
         let layout = textView.layout()
         let theme = textView.theme
         let style = LunaEditorVisualStyle(theme: theme)
@@ -94,9 +95,9 @@ struct MothPaneEditorSurface {
         }
 
         for visible in layout.visibleLines {
-            let textY = visible.rowBounds.y + max(0, (visible.rowBounds.h - 7) / 2)
+            let textY = visible.rowBounds.y + max(0, (visible.rowBounds.h - 10) / 2)
             if !visible.lineNumberText.isEmpty {
-                LunaDebugBitmapTextRenderer.draw(
+                MothUnicodeTextPainter.draw(
                     visible.lineNumberText,
                     atX: visible.lineNumberBounds.x,
                     y: textY,
@@ -105,7 +106,7 @@ struct MothPaneEditorSurface {
                     into: &framebuffer
                 )
             }
-            LunaDebugBitmapTextRenderer.draw(
+            MothUnicodeTextPainter.draw(
                 visible.visualText.text.replacingOccurrences(of: "\t", with: "    "),
                 atX: visible.textBounds.x,
                 y: textY,

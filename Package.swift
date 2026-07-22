@@ -57,6 +57,7 @@ let package = Package(
                 .product(name: "LunaHostCore", package: "Luna-UI"),
                 .product(name: "LunaInput", package: "Luna-UI"),
                 .product(name: "LunaRender", package: "Luna-UI"),
+                .product(name: "LunaTextRender", package: "Luna-UI"),
                 .product(name: "LunaTheme", package: "Luna-UI"),
             ]
         ),
@@ -111,6 +112,7 @@ let package = Package(
                 .product(name: "LunaHostCore", package: "Luna-UI"),
                 .product(name: "LunaInput", package: "Luna-UI"),
                 .product(name: "LunaRender", package: "Luna-UI"),
+                .product(name: "LunaTextRender", package: "Luna-UI"),
                 .product(name: "LunaUI", package: "Luna-UI"),
             ]
         ),

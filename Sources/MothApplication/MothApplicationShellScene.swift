@@ -899,27 +899,53 @@ public struct MothApplicationShellScene {
         statusHeight: Int
     ) {
         let palette = MothApplicationTheme.renderPalette
-        LunaDebugBitmapTextRenderer.draw("MOTH TEXT", atX: 12, y: 10, color: palette.text, into: &framebuffer)
-        LunaDebugBitmapTextRenderer.draw(
+        MothUnicodeTextPainter.draw(
+            "MOTH TEXT",
+            atX: 12,
+            y: 9,
+            color: palette.text,
+            into: &framebuffer
+        )
+        MothUnicodeTextPainter.draw(
             "File  Edit  Selection  Find  View  Goto  Tools",
             atX: 105,
-            y: 10,
+            y: 9,
             color: palette.mutedText,
             into: &framebuffer
         )
+
         let documentSnapshot = document.snapshot()
-        let tabTitle = documentSnapshot.isDirty ? "• \(documentSnapshot.displayName)" : documentSnapshot.displayName
-        LunaDebugBitmapTextRenderer.draw(tabTitle, atX: 18, y: 45, color: palette.text, into: &framebuffer)
+        let titleX: Int
+        if documentSnapshot.isDirty {
+            // Dirty state is explicit geometry rather than a font-dependent
+            // Unicode bullet. This remains visible even if a selected font lacks
+            // a particular symbol glyph.
+            framebuffer.fillRect(
+                LunaRectI(x: 18, y: 47, w: 5, h: 5),
+                color: activeAccent
+            )
+            titleX = 29
+        } else {
+            titleX = 18
+        }
+        MothUnicodeTextPainter.draw(
+            documentSnapshot.displayName,
+            atX: titleX,
+            y: 43,
+            color: palette.text,
+            maximumWidth: max(0, framebuffer.width - titleX - 12),
+            into: &framebuffer
+        )
 
         let snapshot = documentSnapshot.buffer
         let history = document.history.status()
         let dirty = documentSnapshot.isDirty ? "MODIFIED" : "SAVED"
         let pane = paneWorkspace.activePaneID == Self.primaryPaneID ? "PRIMARY" : "SECONDARY"
         let status = "\(documentSnapshot.encoding.displayName)   REV \(snapshot.revision.rawValue)   H\(snapshot.historyState.rawValue)   \(dirty)   U\(history.undoGroupCount)/R\(history.redoGroupCount)   \(pane)   \(statusMessage)"
-        LunaDebugBitmapTextRenderer.draw(
+        MothUnicodeTextPainter.draw(
             status,
             atX: 12,
-            y: max(0, framebuffer.height - statusHeight + 8),
+            y: max(0, framebuffer.height - statusHeight + 5),
             color: documentSnapshot.isDirty ? activeAccent : palette.mutedText,
             maximumWidth: max(0, framebuffer.width - 24),
             into: &framebuffer
@@ -931,16 +957,23 @@ public struct MothApplicationShellScene {
         sidebarWidth: Int
     ) {
         let palette = MothApplicationTheme.renderPalette
-        LunaDebugBitmapTextRenderer.draw("OPEN FILES", atX: 16, y: 86, color: palette.mutedText, into: &framebuffer)
+        MothUnicodeTextPainter.draw("OPEN FILES", atX: 16, y: 84, color: palette.mutedText, into: &framebuffer)
         let snapshot = document.snapshot()
-        LunaDebugBitmapTextRenderer.draw(snapshot.displayName, atX: 28, y: 108, color: activeAccent, maximumWidth: sidebarWidth - 38, into: &framebuffer)
-        LunaDebugBitmapTextRenderer.draw("DOCUMENT", atX: 16, y: 142, color: palette.mutedText, into: &framebuffer)
-        LunaDebugBitmapTextRenderer.draw(snapshot.isUntitled ? "UNTITLED" : "FILE-BACKED", atX: 28, y: 164, color: palette.text, into: &framebuffer)
-        LunaDebugBitmapTextRenderer.draw(snapshot.encoding.displayName, atX: 40, y: 184, color: palette.mutedText, maximumWidth: sidebarWidth - 50, into: &framebuffer)
-        LunaDebugBitmapTextRenderer.draw(snapshot.displayPath, atX: 40, y: 204, color: palette.mutedText, maximumWidth: sidebarWidth - 50, into: &framebuffer)
-        LunaDebugBitmapTextRenderer.draw("Ctrl+Z Undo   Ctrl+Shift+Z Redo", atX: 28, y: 236, color: palette.mutedText, maximumWidth: sidebarWidth - 38, into: &framebuffer)
-        LunaDebugBitmapTextRenderer.draw("Ctrl+O Open   Ctrl+S Save", atX: 28, y: 256, color: palette.mutedText, maximumWidth: sidebarWidth - 38, into: &framebuffer)
-        LunaDebugBitmapTextRenderer.draw("Ctrl+Tab switches panes", atX: 28, y: 276, color: palette.mutedText, maximumWidth: sidebarWidth - 38, into: &framebuffer)
+        MothUnicodeTextPainter.draw(
+            snapshot.displayName,
+            atX: 28,
+            y: 106,
+            color: activeAccent,
+            maximumWidth: sidebarWidth - 38,
+            into: &framebuffer
+        )
+        MothUnicodeTextPainter.draw("DOCUMENT", atX: 16, y: 140, color: palette.mutedText, into: &framebuffer)
+        MothUnicodeTextPainter.draw(snapshot.isUntitled ? "UNTITLED" : "FILE-BACKED", atX: 28, y: 162, color: palette.text, into: &framebuffer)
+        MothUnicodeTextPainter.draw(snapshot.encoding.displayName, atX: 40, y: 182, color: palette.mutedText, maximumWidth: sidebarWidth - 50, into: &framebuffer)
+        MothUnicodeTextPainter.draw(snapshot.displayPath, atX: 40, y: 202, color: palette.mutedText, maximumWidth: sidebarWidth - 50, into: &framebuffer)
+        MothUnicodeTextPainter.draw("Ctrl+Z Undo   Ctrl+Shift+Z Redo", atX: 28, y: 234, color: palette.mutedText, maximumWidth: sidebarWidth - 38, into: &framebuffer)
+        MothUnicodeTextPainter.draw("Ctrl+O Open   Ctrl+S Save", atX: 28, y: 254, color: palette.mutedText, maximumWidth: sidebarWidth - 38, into: &framebuffer)
+        MothUnicodeTextPainter.draw("Ctrl+Tab switches panes", atX: 28, y: 274, color: palette.mutedText, maximumWidth: sidebarWidth - 38, into: &framebuffer)
     }
 
     private func drawPaneEditors(
@@ -957,21 +990,31 @@ public struct MothApplicationShellScene {
             let active = frame.paneID == paneWorkspace.activePaneID
             let title = frame.paneID == Self.primaryPaneID ? "PRIMARY VIEW" : "SECONDARY VIEW"
             let view = viewState(for: frame.paneID)
-            let header = active ? "● \(title)" : "  \(title)"
-            LunaDebugBitmapTextRenderer.draw(
-                header,
-                atX: frame.headerBounds.x + 8,
-                y: frame.headerBounds.y + 7,
+            if active {
+                framebuffer.fillRect(
+                    LunaRectI(
+                        x: frame.headerBounds.x + 8,
+                        y: frame.headerBounds.y + 9,
+                        w: 4,
+                        h: 4
+                    ),
+                    color: activeAccent
+                )
+            }
+            MothUnicodeTextPainter.draw(
+                title,
+                atX: frame.headerBounds.x + 18,
+                y: frame.headerBounds.y + 5,
                 color: active ? activeAccent : palette.mutedText,
-                maximumWidth: max(0, frame.headerBounds.w - 16),
+                maximumWidth: max(0, frame.headerBounds.w - 92),
                 into: &framebuffer
             )
             let scroll = view.viewport.firstVisibleVisualRow.map { "ROW \($0)" }
                 ?? "LINE \(view.viewport.firstVisibleLine + 1)"
-            LunaDebugBitmapTextRenderer.draw(
+            MothUnicodeTextPainter.draw(
                 scroll,
                 atX: max(frame.headerBounds.x + 8, frame.headerBounds.x + frame.headerBounds.w - 72),
-                y: frame.headerBounds.y + 7,
+                y: frame.headerBounds.y + 5,
                 color: palette.mutedText,
                 maximumWidth: 64,
                 into: &framebuffer

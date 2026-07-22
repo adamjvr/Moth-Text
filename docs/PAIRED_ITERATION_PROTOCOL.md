@@ -89,3 +89,14 @@ Normal startup must not require the optional plugin host. Validate IPC separatel
 ```bash
 ./scripts/smoke-test-plugin-host.sh
 ```
+
+## C2.1 Unicode rendering corrective phase
+
+C2.1 is a real Luna-first source phase rather than a documentation-only
+checkpoint. Commit and push Luna's `LunaTextRender` product and tests first, then
+advance Moth's submodule and adopt the painter. The Moth delivery must include the
+new Package.swift product dependency, MothUnicodeTextPainter, pane/shell adoption,
+and graphical regressions.
+
+The manual gate must visibly verify accented text and dirty/active indicators; a
+headless UTF-8 storage test alone is insufficient.

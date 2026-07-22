@@ -46,8 +46,10 @@ A paired phase normally proceeds in this order:
 8. Commit Moth-owned changes and the Luna gitlink together.
 
 A paired phase does not require inventing a Luna API merely to manufacture a
-framework commit. C2 intentionally validates the product/framework boundary by
-implementing history entirely in Moth.
+framework commit. C2 validates that rule by implementing history entirely in
+Moth. C2.1 is the opposite justified case: graphical testing exposed a genuinely
+reusable Unicode shaping/rasterization seam, so Luna adds `LunaTextRender` and
+Moth consumes it without moving product policy into the framework.
 
 ## Layer boundary
 
@@ -99,3 +101,20 @@ Moth maps Luna pane and selection results into its own views. Luna owns geometry
 wrapping, hit testing, click-count interpretation, capture intent, cursor intent,
 and autoscroll requests. Moth retains the file document, source buffer, history,
 dirty state, caret, selection, preferred column, viewport, and edit meaning.
+
+## Convergence C2.1 compatibility point
+
+Moth C2.1 additionally requires:
+
+- the public `LunaTextRender` product;
+- `LunaUnicodeTextRenderer`;
+- `LunaFontLocator.bestMonospacedFontPath()`;
+- shaped UTF-8 cluster/advance layout;
+- cached FreeType glyph-mask painting through LunaRender;
+- explicit missing-glyph fallback behavior.
+
+Moth's adapter chooses font size, shell placement, and product colors. Moth does
+not import FreeType or HarfBuzz and does not own a duplicate glyph cache.
+
+`LunaDebugBitmapTextRenderer` remains valid for ASCII diagnostics and early
+bring-up, but production Moth document text must not call it directly.

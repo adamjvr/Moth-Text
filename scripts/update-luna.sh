@@ -28,6 +28,15 @@ if ! grep -Fq "$required_product" "$luna_path/Package.swift"; then
     exit 1
 fi
 
+unicode_product='.library(name: "LunaTextRender", targets: ["LunaTextRender"])'
+unicode_renderer="$luna_path/Sources/LunaTextRender/LunaUnicodeTextRenderer.swift"
+if ! grep -Fq "$unicode_product" "$luna_path/Package.swift" || \
+   ! grep -Fq 'public final class LunaUnicodeTextRenderer' "$unicode_renderer" || \
+   ! grep -Fq 'bestMonospacedFontPath' "$luna_path/Sources/LunaText/LunaFontLocator.swift"; then
+    echo "error: Luna-UI lacks the Convergence C2.1 Unicode text-rendering contract." >&2
+    exit 1
+fi
+
 if ! grep -Fq 'public struct LunaPaneContentFrame' "$luna_path/Sources/LunaUI/LunaPaneContainer.swift" || \
    ! grep -Fq 'case soft' "$luna_path/Sources/LunaUI/LunaStaticTextView.swift"; then
     echo "error: Luna-UI lacks Phase 5F.2A pane-bound soft-wrap APIs." >&2
@@ -63,8 +72,9 @@ printf 'Moth gitlink: '
 git submodule status Dependencies/Luna-UI
 
 cat <<'MSG'
-Luna-UI is ready for Moth Convergence C2.
-C2 intentionally adds no Luna production API; the C1B compatibility surface is sufficient.
+Luna-UI is ready for Moth Convergence C2.1.
+C2.1 exports the product-neutral LunaTextRender shaped Unicode painter while
+preserving Moth ownership of documents, history, workspace policy, and chrome.
 The modified Dependencies/Luna-UI gitlink must be committed with Moth after validation.
 Do not run another plain `git submodule update` before committing Moth.
 MSG
