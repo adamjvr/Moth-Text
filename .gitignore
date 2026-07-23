@@ -5,3 +5,7 @@
 *.log
 .fr-*
 **/.fr-*
+
+# Generated A1 audit results
+audit-results/
+Moth-A1.1R-partial-audit-results.tar.gz
