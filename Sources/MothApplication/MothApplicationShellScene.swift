@@ -36,6 +36,8 @@ public struct MothApplicationShellScene {
     public private(set) var lastCommandSource: String?
     public private(set) var hostFrameTimingStats: LunaFrameTimingStats
     public private(set) var hostInputStats: LunaInputCoalescingStats
+    public private(set) var latestFrameInvalidations: LunaFrameInvalidationSet
+    public private(set) var latestFrameRenderReport: LunaFrameRenderReport?
 
     private var documentController: MothDocumentController<MothLocalDocumentFileAccess>
     private var dialogService: any LunaDialogService
@@ -47,6 +49,7 @@ public struct MothApplicationShellScene {
     private var commandRuntime: LunaCommandRuntime<MothApplicationShellScene>
     private var menuBarState: LunaMenuBarState
     private var commandPaletteState: LunaQuickPanelState?
+    private var pendingFrameRenderReport: LunaFrameRenderReport?
 
     public init(
         initialSize: LunaSizeI = LunaSizeI(width: 1100, height: 720),
@@ -86,6 +89,9 @@ public struct MothApplicationShellScene {
         self.lastCommandSource = nil
         self.hostFrameTimingStats = LunaFrameTimingStats()
         self.hostInputStats = LunaInputCoalescingStats()
+        self.latestFrameInvalidations = LunaFrameInvalidationSet(.initial)
+        self.latestFrameRenderReport = nil
+        self.pendingFrameRenderReport = nil
         self.statusMessage = document.snapshot().isUntitled
             ? "Untitled document — Ctrl+Shift+S to Save As"
             : "Opened \(document.snapshot().displayPath)"
@@ -129,20 +135,30 @@ public struct MothApplicationShellScene {
     public var runtimePerformanceDiagnostics: String {
         let performance = MothUnicodeTextPainter.performanceSnapshot
         return String(
-            format: "latency %.2f ms | %@ | %@",
+            format: "latency %.2f ms | %@ | %@ | %@",
             hostFrameTimingStats.movingAverageInputToPresentMilliseconds,
             hostInputStats.statusText,
-            performance.compactStatusText
+            performance.compactStatusText,
+            hostFrameTimingStats.renderPathStatusText
         )
     }
 
     public mutating func updateHostRuntimeDiagnostics(
         timingStats: LunaFrameTimingStats,
-        inputStats: LunaInputCoalescingStats
+        inputStats: LunaInputCoalescingStats,
+        invalidations: LunaFrameInvalidationSet = LunaFrameInvalidationSet()
     ) {
         hostFrameTimingStats = timingStats
         hostInputStats = inputStats
+        latestFrameInvalidations = invalidations
     }
+
+    public mutating func takeFrameRenderReport() -> LunaFrameRenderReport? {
+        let report = pendingFrameRenderReport
+        pendingFrameRenderReport = nil
+        return report
+    }
+
     public var wantsContinuousRendering: Bool { textSelectionInteractionState.wantsContinuousUpdates }
     public var cursorIntent: LunaCursorIntent { currentCursorIntent }
     public var wantsPointerCapture: Bool {
@@ -314,6 +330,8 @@ public struct MothApplicationShellScene {
     }
 
     public mutating func render(into framebuffer: inout LunaFramebuffer) {
+        pendingFrameRenderReport = nil
+        let renderStart = LunaMonotonicClock.nowNanoseconds()
         advanceTextSelectionAutoscroll()
         let width = framebuffer.width
         let height = framebuffer.height
@@ -361,6 +379,20 @@ public struct MothApplicationShellScene {
         )
         drawMenuSurface(into: &framebuffer)
         drawCommandPalette(into: &framebuffer)
+
+        let renderEnd = LunaMonotonicClock.nowNanoseconds()
+        let report = LunaFrameRenderReport(
+            path: .fullScene,
+            invalidationClass: LunaFrameInvalidationClass(
+                invalidations: latestFrameInvalidations
+            ),
+            cacheMissReason: .notApplicable,
+            staticSceneNanoseconds: renderEnd >= renderStart
+                ? renderEnd - renderStart
+                : 0
+        )
+        latestFrameRenderReport = report
+        pendingFrameRenderReport = report
     }
 
     // MARK: - Pane integration
