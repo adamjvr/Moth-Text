@@ -1,0 +1,251 @@
+--- a/Sources/MothApplication/MothApplicationShellScene.swift
++++ b/Sources/MothApplication/MothApplicationShellScene.swift
+@@ -2,6 +2,7 @@
+     private var menuBarState: LunaMenuBarState
+     private var commandPaletteState: LunaQuickPanelState?
+     private var pendingFrameRenderReport: LunaFrameRenderReport?
++    private var staticFrameCache: MothApplicationStaticFrameCache?
+ 
+     public init(
+ 
+@@ -19,6 +20,7 @@
+         self.latestFrameInvalidations = LunaFrameInvalidationSet(.initial)
+         self.latestFrameRenderReport = nil
+         self.pendingFrameRenderReport = nil
++        self.staticFrameCache = nil
+         self.statusMessage = document.snapshot().isUntitled
+ 
+ 
+@@ -34,6 +36,7 @@
+ 
+         case .windowResized:
+             resetWrappedScrollAnchors()
++            staticFrameCache = nil
+             return LunaFrameInvalidationSet(.windowResized)
+ 
+         case .pointerCaptureLost:
+@@ -53,52 +56,94 @@
+         pendingFrameRenderReport = nil
+         let renderStart = LunaMonotonicClock.nowNanoseconds()
+         advanceTextSelectionAutoscroll()
+-        let width = framebuffer.width
+-        let height = framebuffer.height
++
++        let size = LunaSizeI(
++            width: framebuffer.width,
++            height: framebuffer.height
++        )
++        let geometry = MothApplicationFrameGeometry(framebufferSize: size)
++        let hasCompatibleCache = staticFrameCache?.matches(size: size) == true
++        let damagePlan = MothApplicationFrameDamagePlan.make(
++            invalidations: latestFrameInvalidations,
++            geometry: geometry,
++            hasCompatibleCache: hasCompatibleCache,
++            hasActiveOverlay: menuBarState.isOpen || commandPaletteState != nil
++        )
++
++        if damagePlan.path == .partialDamage,
++           let cache = staticFrameCache {
++            let restoreStart = LunaMonotonicClock.nowNanoseconds()
++            let restoredPixels = cache.restore(
++                into: &framebuffer,
++                regions: damagePlan.regions
++            )
++            let restoreEnd = LunaMonotonicClock.nowNanoseconds()
++
++            if restoredPixels > 0 {
++                let partialStart = LunaMonotonicClock.nowNanoseconds()
++                drawPartialFrame(
++                    into: &framebuffer,
++                    geometry: geometry,
++                    plan: damagePlan
++                )
++                let partialEnd = LunaMonotonicClock.nowNanoseconds()
++
++                staticFrameCache?.update(
++                    from: framebuffer,
++                    regions: damagePlan.regions
++                )
++
++                let report = LunaFrameRenderReport(
++                    path: .partialDamage,
++                    invalidationClass: LunaFrameInvalidationClass(
++                        invalidations: latestFrameInvalidations
++                    ),
++                    cacheRestoreNanoseconds: restoreEnd >= restoreStart
++                        ? restoreEnd - restoreStart
++                        : 0,
++                    dynamicSceneNanoseconds: partialEnd >= partialStart
++                        ? partialEnd - partialStart
++                        : 0,
++                    damagedRegionCount: damagePlan.regions.count,
++                    damagedPixelCount: restoredPixels
++                )
++                latestFrameRenderReport = report
++                pendingFrameRenderReport = report
++                return
++            }
++        }
++
+         let palette = MothApplicationTheme.renderPalette
+-
+         framebuffer.clear(palette.windowBackground)
+-
+-        let statusHeight = 24
+-        let sidebarWidth = min(260, max(150, width / 4))
+-        let minimapWidth = min(110, max(60, width / 10))
+-        let contentTop = 68
+-        let contentHeight = max(1, height - contentTop - statusHeight)
+-        let paneBounds = LunaRectI(
+-            x: sidebarWidth + 1,
+-            y: contentTop,
+-            w: max(1, width - sidebarWidth - minimapWidth - 2),
+-            h: contentHeight
+-        )
+-
+-        framebuffer.fillRect(LunaRectI(x: 0, y: 0, w: width, h: 30), color: palette.chromeBackground)
+-        framebuffer.fillRect(LunaRectI(x: 0, y: 30, w: width, h: 38), color: palette.raisedBackground)
+-        framebuffer.fillRect(LunaRectI(x: 0, y: contentTop, w: sidebarWidth, h: contentHeight), color: palette.chromeBackground)
+-        framebuffer.fillRect(
+-            LunaRectI(x: max(sidebarWidth + 1, width - minimapWidth), y: contentTop, w: minimapWidth, h: contentHeight),
+-            color: palette.minimapBackground
+-        )
+-        framebuffer.fillRect(
+-            LunaRectI(x: 0, y: max(0, height - statusHeight), w: width, h: statusHeight),
+-            color: palette.raisedBackground
+-        )
+-        framebuffer.fillRect(LunaRectI(x: sidebarWidth, y: contentTop, w: 1, h: contentHeight), color: palette.separator)
+-        framebuffer.fillRect(LunaRectI(x: 0, y: contentTop - 1, w: width, h: 1), color: palette.separator)
+-        framebuffer.fillRect(LunaRectI(x: 10, y: 63, w: min(180, max(40, width / 5)), h: 3), color: activeAccent)
+-
+-        drawChromeText(framebuffer: &framebuffer, statusHeight: statusHeight)
+-        drawSidebar(framebuffer: &framebuffer, sidebarWidth: sidebarWidth)
+-        drawPaneEditors(framebuffer: &framebuffer, bounds: paneBounds)
++        framebuffer.fillRect(geometry.menuBarBounds, color: palette.chromeBackground)
++        framebuffer.fillRect(geometry.documentBarBounds, color: palette.raisedBackground)
++        framebuffer.fillRect(geometry.sidebarBounds, color: palette.chromeBackground)
++        framebuffer.fillRect(geometry.minimapBounds, color: palette.minimapBackground)
++        framebuffer.fillRect(geometry.statusBounds, color: palette.raisedBackground)
++        framebuffer.fillRect(geometry.sidebarSeparatorBounds, color: palette.separator)
++        framebuffer.fillRect(geometry.contentTopSeparatorBounds, color: palette.separator)
++        framebuffer.fillRect(geometry.accentRuleBounds, color: activeAccent)
++
++        drawChromeText(
++            framebuffer: &framebuffer,
++            statusHeight: geometry.statusBounds.h
++        )
++        drawSidebar(
++            framebuffer: &framebuffer,
++            sidebarWidth: geometry.sidebarBounds.w
++        )
++        drawPaneEditors(framebuffer: &framebuffer, bounds: geometry.paneBounds)
+         drawMinimap(
+             framebuffer: &framebuffer,
+-            left: max(sidebarWidth + 1, width - minimapWidth),
+-            top: contentTop,
+-            width: minimapWidth,
+-            height: contentHeight,
++            left: geometry.minimapBounds.x,
++            top: geometry.minimapBounds.y,
++            width: geometry.minimapBounds.w,
++            height: geometry.minimapBounds.h,
+             accent: activeAccent
+         )
+         drawMenuSurface(into: &framebuffer)
+         drawCommandPalette(into: &framebuffer)
++        storeStaticFrameCache(from: framebuffer, size: size)
+ 
+         let renderEnd = LunaMonotonicClock.nowNanoseconds()
+         let report = LunaFrameRenderReport(
+@@ -106,7 +151,7 @@
+             invalidationClass: LunaFrameInvalidationClass(
+                 invalidations: latestFrameInvalidations
+             ),
+-            cacheMissReason: .notApplicable,
++            cacheMissReason: damagePlan.cacheMissReason,
+             staticSceneNanoseconds: renderEnd >= renderStart
+                 ? renderEnd - renderStart
+                 : 0
+@@ -115,4 +160,82 @@
+         pendingFrameRenderReport = report
+     }
+ 
++    private mutating func drawPartialFrame(
++        into framebuffer: inout LunaFramebuffer,
++        geometry: MothApplicationFrameGeometry,
++        plan: MothApplicationFrameDamagePlan
++    ) {
++        let palette = MothApplicationTheme.renderPalette
++
++        switch plan.kind {
++        case .documentEdit:
++            framebuffer.fillRect(
++                geometry.documentBarBounds,
++                color: palette.raisedBackground
++            )
++            framebuffer.fillRect(
++                geometry.paneBounds,
++                color: palette.windowBackground
++            )
++            framebuffer.fillRect(
++                geometry.minimapBounds,
++                color: palette.minimapBackground
++            )
++            framebuffer.fillRect(
++                geometry.statusBounds,
++                color: palette.raisedBackground
++            )
++            framebuffer.fillRect(
++                geometry.contentTopSeparatorBounds,
++                color: palette.separator
++            )
++            framebuffer.fillRect(
++                geometry.accentRuleBounds,
++                color: activeAccent
++            )
++
++            drawChromeText(
++                framebuffer: &framebuffer,
++                statusHeight: geometry.statusBounds.h
++            )
++            drawPaneEditors(framebuffer: &framebuffer, bounds: geometry.paneBounds)
++            drawMinimap(
++                framebuffer: &framebuffer,
++                left: geometry.minimapBounds.x,
++                top: geometry.minimapBounds.y,
++                width: geometry.minimapBounds.w,
++                height: geometry.minimapBounds.h,
++                accent: activeAccent
++            )
++
++        case .paneVisual:
++            framebuffer.fillRect(
++                geometry.paneBounds,
++                color: palette.windowBackground
++            )
++            framebuffer.fillRect(
++                geometry.statusBounds,
++                color: palette.raisedBackground
++            )
++            drawChromeText(
++                framebuffer: &framebuffer,
++                statusHeight: geometry.statusBounds.h
++            )
++            drawPaneEditors(framebuffer: &framebuffer, bounds: geometry.paneBounds)
++
++        case .fullScene:
++            break
++        }
++    }
++
++    private mutating func storeStaticFrameCache(
++        from framebuffer: LunaFramebuffer,
++        size: LunaSizeI
++    ) {
++        if staticFrameCache?.matches(size: size) != true {
++            staticFrameCache = MothApplicationStaticFrameCache(size: size)
++        }
++        staticFrameCache?.replace(with: framebuffer)
++    }
++
+     // MARK: - Pane integration
