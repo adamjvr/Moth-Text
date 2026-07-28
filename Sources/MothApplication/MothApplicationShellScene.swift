@@ -449,9 +449,11 @@ public struct MothApplicationShellScene {
             framebuffer: &framebuffer,
             sidebarWidth: geometry.sidebarBounds.w
         )
+        let framePresentation = currentViewportPresentation()
         drawPaneEditors(
             framebuffer: &framebuffer,
-            bounds: geometry.paneBounds
+            bounds: geometry.paneBounds,
+            presentationBundle: framePresentation
         )
         drawMinimap(
             framebuffer: &framebuffer,
@@ -459,7 +461,8 @@ public struct MothApplicationShellScene {
             top: geometry.minimapBounds.y,
             width: geometry.minimapBounds.w,
             height: geometry.minimapBounds.h,
-            accent: activeAccent
+            accent: activeAccent,
+            presentationBundle: framePresentation
         )
         // The restoration cache always represents the overlay-free base frame.
         // Menus and quick panels are transient and must never contaminate it.
@@ -494,6 +497,7 @@ public struct MothApplicationShellScene {
         plan: MothApplicationFrameDamagePlan
     ) {
         let palette = MothApplicationTheme.renderPalette
+        let framePresentation = currentViewportPresentation()
 
         switch plan.kind {
         case .documentEdit:
@@ -529,7 +533,8 @@ public struct MothApplicationShellScene {
             )
             drawPaneEditors(
                 framebuffer: &framebuffer,
-                bounds: geometry.paneBounds
+                bounds: geometry.paneBounds,
+                presentationBundle: framePresentation
             )
             drawMinimap(
                 framebuffer: &framebuffer,
@@ -537,7 +542,8 @@ public struct MothApplicationShellScene {
                 top: geometry.minimapBounds.y,
                 width: geometry.minimapBounds.w,
                 height: geometry.minimapBounds.h,
-                accent: activeAccent
+                accent: activeAccent,
+                presentationBundle: framePresentation
             )
 
         case .paneVisual:
@@ -560,7 +566,8 @@ public struct MothApplicationShellScene {
                 top: geometry.minimapBounds.y,
                 width: geometry.minimapBounds.w,
                 height: geometry.minimapBounds.h,
-                accent: activeAccent
+                accent: activeAccent,
+                presentationBundle: framePresentation
             )
             drawStatusText(
                 framebuffer: &framebuffer,
@@ -568,7 +575,8 @@ public struct MothApplicationShellScene {
             )
             drawPaneEditors(
                 framebuffer: &framebuffer,
-                bounds: geometry.paneBounds
+                bounds: geometry.paneBounds,
+                presentationBundle: framePresentation
             )
 
         case .fullScene:
@@ -608,6 +616,31 @@ public struct MothApplicationShellScene {
 
     func paneLayout(bounds: LunaRectI? = nil) -> LunaPaneContainerLayout {
         paneContainer(bounds: bounds).layout()
+    }
+
+    private func makePaneInteractionSnapshot() -> MothPaneInteractionSnapshot {
+        let start = LunaMonotonicClock.nowNanoseconds()
+        let layout = paneLayout()
+        let presentationBundle = currentViewportPresentation()
+        let surfaces = layout.contentFrames(metrics: .editor).map { frame in
+            (
+                paneID: frame.paneID,
+                surface: makePaneSurface(
+                    paneID: frame.paneID,
+                    contentFrame: frame,
+                    presentationBundle: presentationBundle
+                )
+            )
+        }
+        let end = LunaMonotonicClock.nowNanoseconds()
+        runtimeAttributionRecorder.recordInteractionSnapshot(
+            surfaceCount: surfaces.count,
+            elapsedNanoseconds: end >= start ? end - start : 0
+        )
+        return MothPaneInteractionSnapshot(
+            layout: layout,
+            surfaces: surfaces
+        )
     }
 
     func paneContentFrame(for paneID: LunaPaneID) -> LunaPaneContentFrame? {
@@ -652,21 +685,35 @@ public struct MothApplicationShellScene {
         )
     }
 
-    private func resolvedCursorIntent(at point: LunaPointI) -> LunaCursorIntent {
+    private func resolvedCursorIntent(
+        at point: LunaPointI,
+        interactionSnapshot suppliedSnapshot: MothPaneInteractionSnapshot? = nil
+    ) -> LunaCursorIntent {
         if commandPaletteState != nil || menuBarState.isOpen { return .arrow }
         if scrollbarInteractionState.isDragging { return .arrow }
-        if let surface = paneSurface(at: point),
-           surface.surface.textView.layout().scrollbarLaneBounds.contains(x: point.x, y: point.y) {
+
+        let interactionSnapshot = suppliedSnapshot
+            ?? makePaneInteractionSnapshot()
+
+        if let target = interactionSnapshot.surface(at: point),
+           target.surface.textView.layout().scrollbarLaneBounds.contains(
+               x: point.x,
+               y: point.y
+           ) {
             return .arrow
         }
         if textSelectionInteractionState.isSelecting { return .text }
+
         let container = paneContainer()
         if let dividerIntent = container.cursorIntent(at: point) {
             return dividerIntent
         }
-        if let pane = paneLayout().paneFrames.first(where: { $0.bounds.contains(x: point.x, y: point.y) }),
-           let content = paneContentFrame(for: pane.paneID),
-           content.contentBounds.contains(x: point.x, y: point.y) {
+
+        if interactionSnapshot.layout
+            .contentFrames(metrics: .editor)
+            .contains(where: {
+                $0.contentBounds.contains(x: point.x, y: point.y)
+            }) {
             return .text
         }
         return .arrow
@@ -675,7 +722,14 @@ public struct MothApplicationShellScene {
     private mutating func handlePointer(_ event: LunaPointerEvent) {
         if handleCommandPalettePointer(event) { return }
         if handleMenuPointer(event) { return }
-        if handleScrollbarPointer(event) { return }
+
+        let interactionSnapshot = makePaneInteractionSnapshot()
+        if handleScrollbarPointer(
+            event,
+            interactionSnapshot: interactionSnapshot
+        ) {
+            return
+        }
 
         if event.phase == .down { pointerAccentIsActive.toggle() }
 
@@ -690,12 +744,15 @@ public struct MothApplicationShellScene {
         )
         paneWorkspace = workspace
         paneInteractionState = paneInteraction
-        currentCursorIntent = resolvedCursorIntent(at: event.location)
 
         let ownsDividerGesture = wasDraggingDivider
             || paneInteraction.isDraggingDivider
             || paneResult.resizedSplitID != nil
         if ownsDividerGesture {
+            currentCursorIntent = resolvedCursorIntent(
+                at: event.location,
+                interactionSnapshot: interactionSnapshot
+            )
             textSelectionInteractionState.cancel()
             resetWrappedScrollAnchors()
             statusMessage = paneInteraction.isDraggingDivider
@@ -704,16 +761,24 @@ public struct MothApplicationShellScene {
             return
         }
 
+        currentCursorIntent = resolvedCursorIntent(
+            at: event.location,
+            interactionSnapshot: interactionSnapshot
+        )
+
         let target: (paneID: LunaPaneID, surface: MothPaneEditorSurface)?
         if event.phase == .down {
-            target = paneSurface(at: event.location)
+            target = interactionSnapshot.surface(at: event.location)
         } else {
-            target = paneSurface(forTextSurfaceID: textSelectionInteractionState.activeSurfaceID)
+            target = interactionSnapshot.surface(
+                forTextSurfaceID: textSelectionInteractionState.activeSurfaceID
+            )
         }
 
         guard let target else {
-            if event.phase == .down { textSelectionInteractionState.cancel() }
-            currentCursorIntent = resolvedCursorIntent(at: event.location)
+            if event.phase == .down {
+                textSelectionInteractionState.cancel()
+            }
             return
         }
 
@@ -724,8 +789,12 @@ public struct MothApplicationShellScene {
         )
         let currentSelection = presentation.selection.map {
             LunaTextRange(
-                anchor: textView.document.location(forAbsoluteUTF8Offset: $0.anchor.rawValue),
-                focus: textView.document.location(forAbsoluteUTF8Offset: $0.focus.rawValue)
+                anchor: textView.document.location(
+                    forAbsoluteUTF8Offset: $0.anchor.rawValue
+                ),
+                focus: textView.document.location(
+                    forAbsoluteUTF8Offset: $0.focus.rawValue
+                )
             )
         }
 
@@ -738,24 +807,42 @@ public struct MothApplicationShellScene {
             state: &selectionInteraction
         )
         textSelectionInteractionState = selectionInteraction
-        currentCursorIntent = resolvedCursorIntent(at: event.location)
+        currentCursorIntent = resolvedCursorIntent(
+            at: event.location,
+            interactionSnapshot: interactionSnapshot
+        )
 
         guard selectionResult.didConsumeEvent else { return }
-        applyTextSelectionResult(selectionResult, paneID: target.paneID, textView: textView)
-        let selectedBytes = viewState(for: target.paneID).selection?.normalizedRange.length ?? 0
+        applyTextSelectionResult(
+            selectionResult,
+            paneID: target.paneID,
+            textView: textView
+        )
+        let selectedBytes = viewState(
+            for: target.paneID
+        ).selection?.normalizedRange.length ?? 0
         let gesture: String
         switch selectionResult.granularity ?? selectionInteraction.granularity {
-        case .character: gesture = selectionResult.didEndGesture ? "selection complete" : "drag selection"
-        case .word: gesture = "word selection"
-        case .line: gesture = "line selection"
+        case .character:
+            gesture = selectionResult.didEndGesture
+                ? "selection complete"
+                : "drag selection"
+        case .word:
+            gesture = "word selection"
+        case .line:
+            gesture = "line selection"
         }
         statusMessage = "\(gesture) in \(target.paneID.rawValue): bytes=\(selectedBytes)"
     }
 
     private mutating func handleScroll(_ event: LunaScrollEvent) -> Bool {
-        guard commandPaletteState == nil, !menuBarState.isOpen,
-              let target = paneSurface(at: event.location)
-        else { return false }
+        guard commandPaletteState == nil, !menuBarState.isOpen else {
+            return false
+        }
+        let interactionSnapshot = makePaneInteractionSnapshot()
+        guard let target = interactionSnapshot.surface(at: event.location) else {
+            return false
+        }
 
         let viewport = viewState(for: target.paneID).viewport
         let result = LunaStaticTextScrollInteraction.handleScrollEvent(
@@ -767,20 +854,32 @@ public struct MothApplicationShellScene {
 
         mutateView(for: target.paneID) { view in
             view.viewport.firstVisibleLine = result.requestedScrollTopLine
-            view.viewport.firstVisibleVisualRow = result.requestedScrollTopVisualRow
-            view.viewport.verticalScrollRemainder = result.fractionalRowRemainder
+            view.viewport.firstVisibleVisualRow =
+                result.requestedScrollTopVisualRow
+            view.viewport.verticalScrollRemainder =
+                result.fractionalRowRemainder
         }
-        statusMessage = "Scrolled \(target.paneID.rawValue) to visual row \(result.requestedScrollTopVisualRow ?? result.requestedScrollTopLine)"
+        statusMessage =
+            "Scrolled \(target.paneID.rawValue) to visual row "
+            + "\(result.requestedScrollTopVisualRow ?? result.requestedScrollTopLine)"
         currentCursorIntent = .arrow
         return true
     }
 
-    private mutating func handleScrollbarPointer(_ event: LunaPointerEvent) -> Bool {
+    private mutating func handleScrollbarPointer(
+        _ event: LunaPointerEvent,
+        interactionSnapshot suppliedSnapshot: MothPaneInteractionSnapshot? = nil
+    ) -> Bool {
+        let interactionSnapshot = suppliedSnapshot
+            ?? makePaneInteractionSnapshot()
+
         let target: (paneID: LunaPaneID, surface: MothPaneEditorSurface)?
         if let activeSurfaceID = scrollbarInteractionState.activeSurfaceID {
-            target = paneSurface(forTextSurfaceID: activeSurfaceID)
+            target = interactionSnapshot.surface(
+                forTextSurfaceID: activeSurfaceID
+            )
         } else {
-            target = paneSurface(at: event.location)
+            target = interactionSnapshot.surface(at: event.location)
         }
         guard let target else { return false }
 
@@ -800,17 +899,21 @@ public struct MothApplicationShellScene {
         if let line = result.requestedScrollTopLine {
             mutateView(for: target.paneID) { view in
                 view.viewport.firstVisibleLine = line
-                view.viewport.firstVisibleVisualRow = result.requestedScrollTopVisualRow
+                view.viewport.firstVisibleVisualRow =
+                    result.requestedScrollTopVisualRow
                 view.viewport.verticalScrollRemainder = 0
             }
         }
         currentCursorIntent = .arrow
         if result.didBeginDrag {
-            statusMessage = "Dragging scrollbar in \(target.paneID.rawValue)"
+            statusMessage =
+                "Dragging scrollbar in \(target.paneID.rawValue)"
         } else if result.didEndDrag {
-            statusMessage = "Scrollbar drag complete in \(target.paneID.rawValue)"
+            statusMessage =
+                "Scrollbar drag complete in \(target.paneID.rawValue)"
         } else {
-            statusMessage = "Scrollbar page in \(target.paneID.rawValue)"
+            statusMessage =
+                "Scrollbar page in \(target.paneID.rawValue)"
         }
         return true
     }
@@ -1668,6 +1771,7 @@ public struct MothApplicationShellScene {
     }
 
     private func currentViewportPresentation() -> MothDocumentViewportPresentation {
+        let lookupStart = LunaMonotonicClock.nowNanoseconds()
         let bufferSnapshot = buffer.snapshot()
         let key = MothDocumentViewportPresentationKey(
             presentationKey: MothDocumentPresentationKey(
@@ -1677,13 +1781,27 @@ public struct MothApplicationShellScene {
             geometryGeneration: 0
         )
         if let cached = viewportPresentationStore.cachedPresentation(for: key) {
-            runtimeAttributionRecorder.recordPresentationRequest(cacheHit: true)
+            let lookupEnd = LunaMonotonicClock.nowNanoseconds()
+            runtimeAttributionRecorder.recordPresentationRequest(
+                cacheHit: true,
+                elapsedNanoseconds: lookupEnd >= lookupStart
+                    ? lookupEnd - lookupStart
+                    : 0
+            )
             return cached
         }
-        runtimeAttributionRecorder.recordPresentationRequest(cacheHit: false)
-        return viewportPresentationStore.presentation(for: key) {
+
+        let built = viewportPresentationStore.presentation(for: key) {
             MothLunaTextStorageAdapter(buffer: buffer).textSnapshot()
         }
+        let lookupEnd = LunaMonotonicClock.nowNanoseconds()
+        runtimeAttributionRecorder.recordPresentationRequest(
+            cacheHit: false,
+            elapsedNanoseconds: lookupEnd >= lookupStart
+                ? lookupEnd - lookupStart
+                : 0
+        )
+        return built
     }
 
     // MARK: - Drawing
@@ -1942,13 +2060,15 @@ public struct MothApplicationShellScene {
 
     private func drawPaneEditors(
         framebuffer: inout LunaFramebuffer,
-        bounds: LunaRectI
+        bounds: LunaRectI,
+        presentationBundle suppliedBundle: MothDocumentViewportPresentation? = nil
     ) {
         let palette = MothApplicationTheme.renderPalette
         let container = paneContainer(bounds: bounds)
         let layout = container.layout()
         let frames = layout.contentFrames(metrics: .editor)
-        let presentationBundle = currentViewportPresentation()
+        let presentationBundle = suppliedBundle
+            ?? currentViewportPresentation()
 
         for frame in frames {
             framebuffer.fillRect(frame.headerBounds, color: palette.raisedBackground)
@@ -2011,9 +2131,12 @@ public struct MothApplicationShellScene {
         top: Int,
         width: Int,
         height: Int,
-        accent: LunaRender.LunaRGBA8
+        accent: LunaRender.LunaRGBA8,
+        presentationBundle suppliedBundle: MothDocumentViewportPresentation? = nil
     ) {
-        let document = currentViewportPresentation().presentation.document
+        let presentationBundle = suppliedBundle
+            ?? currentViewportPresentation()
+        let document = presentationBundle.presentation.document
         let usableWidth = max(8, width - 20)
         let plan = MothMinimapSamplePlan(
             logicalLineCount: document.lineCount,
@@ -2022,10 +2145,13 @@ public struct MothApplicationShellScene {
             rowStride: 6
         )
         runtimeAttributionRecorder.recordMinimapPlan(
-            sampleCount: plan.samples.count
+            sampleCount: plan.samples.count,
+            metadataLookupCount: plan.samples.count
         )
         for sample in plan.samples {
-            guard let line = document[line: sample.logicalLineIndex] else { continue }
+            guard let line = document.lineMetadata(
+                at: sample.logicalLineIndex
+            ) else { continue }
             let y = top + 10 + sample.rowIndex * 6
             let boundedLength = min(usableWidth, line.utf8Length)
             let length = min(usableWidth, max(2, boundedLength * 2))

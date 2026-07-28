@@ -22,7 +22,8 @@ final class MothC25GRealShellAttributionTests: XCTestCase {
 
         let afterCold = scene.runtimeWorkAttribution
         XCTAssertEqual(afterCold.presentationBuildCount, 1)
-        XCTAssertGreaterThanOrEqual(afterCold.presentationCacheHitCount, 1)
+        XCTAssertEqual(afterCold.presentationRequestCount, 1)
+        XCTAssertEqual(afterCold.presentationCacheHitCount, 0)
         XCTAssertEqual(afterCold.paneSurfaceBuildCount, 2)
         XCTAssertGreaterThan(afterCold.minimapSampleCount, 0)
         XCTAssertEqual(afterCold.fullSceneFrameCount, 1)

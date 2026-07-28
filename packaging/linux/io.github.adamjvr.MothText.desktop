@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Moth Text
+GenericName=Text Editor
+Comment=Native Luna-powered source text editor
+Exec=moth-text %F
+TryExec=moth-text
+Icon=io.github.adamjvr.MothText
+Terminal=false
+Categories=Development;TextEditor;
+MimeType=text/plain;
+StartupNotify=true
+StartupWMClass=MothTextLinux
+Keywords=text;editor;code;source;moth;
