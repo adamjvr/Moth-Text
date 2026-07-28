@@ -314,6 +314,18 @@ See:
 - [`docs/TEXT_GEOMETRY_AND_SCROLLING.md`](docs/TEXT_GEOMETRY_AND_SCROLLING.md)
 - [`docs/INPUT_LATENCY.md`](docs/INPUT_LATENCY.md)
 
+## C2.5F — Virtualized document presentation
+
+C2.5E semantic dispatch fairness passed automated validation, but its native
+large-document matrix was rejected: 500 lines were sluggish and the 5,000- and
+50,000-line fixtures required force quit. The committed checkpoint also contained
+patch artifacts rather than the intended live Moth source integration.
+
+C2.5F repairs the live shell, consumes Luna's virtualized text context, shares one
+revision projection across both panes and the minimap, bounds retained revision and
+geometry state, and samples the minimap by pixel height. M3A remains blocked until
+the 50/500/5,000/50,000-line native matrix passes.
+
 ## Build
 
 Luna's Linux development path requires SDL2, HarfBuzz, FreeType, and `pkg-config`:

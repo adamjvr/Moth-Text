@@ -50,6 +50,9 @@ public struct MothApplicationShellScene {
     private var menuBarState: LunaMenuBarState
     private var commandPaletteState: LunaQuickPanelState?
     private var pendingFrameRenderReport: LunaFrameRenderReport?
+    private var staticFrameCache: MothApplicationStaticFrameCache?
+    private let viewportPresentationStore: MothDocumentViewportPresentationStore
+    private let runtimeAttributionRecorder: MothRuntimeWorkAttributionRecorder
 
     public init(
         initialSize: LunaSizeI = LunaSizeI(width: 1100, height: 720),
@@ -92,6 +95,9 @@ public struct MothApplicationShellScene {
         self.latestFrameInvalidations = LunaFrameInvalidationSet(.initial)
         self.latestFrameRenderReport = nil
         self.pendingFrameRenderReport = nil
+        self.staticFrameCache = nil
+        self.viewportPresentationStore = MothDocumentViewportPresentationStore()
+        self.runtimeAttributionRecorder = MothRuntimeWorkAttributionRecorder()
         self.statusMessage = document.snapshot().isUntitled
             ? "Untitled document — Ctrl+Shift+S to Save As"
             : "Opened \(document.snapshot().displayPath)"
@@ -130,6 +136,14 @@ public struct MothApplicationShellScene {
     public var unicodeTextDiagnostics: MothUnicodeTextDiagnostics { MothUnicodeTextPainter.diagnostics }
     public var unicodeTextPerformance: MothUnicodeTextPerformanceSnapshot {
         MothUnicodeTextPainter.performanceSnapshot
+    }
+
+    public var runtimeWorkAttribution: MothRuntimeWorkAttributionSnapshot {
+        runtimeAttributionRecorder.snapshot
+    }
+
+    public func flushRuntimeWorkAttributionIfRequested() throws {
+        try runtimeAttributionRecorder.flushIfRequested()
     }
 
     public var runtimePerformanceDiagnostics: String {
@@ -278,6 +292,7 @@ public struct MothApplicationShellScene {
 
         case .windowResized:
             resetWrappedScrollAnchors()
+            staticFrameCache = nil
             return LunaFrameInvalidationSet(.windowResized)
 
         case .pointerCaptureLost:
@@ -333,66 +348,242 @@ public struct MothApplicationShellScene {
         pendingFrameRenderReport = nil
         let renderStart = LunaMonotonicClock.nowNanoseconds()
         advanceTextSelectionAutoscroll()
-        let width = framebuffer.width
-        let height = framebuffer.height
-        let palette = MothApplicationTheme.renderPalette
 
-        framebuffer.clear(palette.windowBackground)
-
-        let statusHeight = 24
-        let sidebarWidth = min(260, max(150, width / 4))
-        let minimapWidth = min(110, max(60, width / 10))
-        let contentTop = 68
-        let contentHeight = max(1, height - contentTop - statusHeight)
-        let paneBounds = LunaRectI(
-            x: sidebarWidth + 1,
-            y: contentTop,
-            w: max(1, width - sidebarWidth - minimapWidth - 2),
-            h: contentHeight
+        let size = LunaSizeI(
+            width: framebuffer.width,
+            height: framebuffer.height
+        )
+        let geometry = MothApplicationFrameGeometry(framebufferSize: size)
+        let hasCompatibleCache = staticFrameCache?.matches(size: size) == true
+        let damagePlan = MothApplicationFrameDamagePlan.make(
+            invalidations: latestFrameInvalidations,
+            geometry: geometry,
+            hasCompatibleCache: hasCompatibleCache,
+            hasActiveOverlay: menuBarState.isOpen || commandPaletteState != nil
         )
 
-        framebuffer.fillRect(LunaRectI(x: 0, y: 0, w: width, h: 30), color: palette.chromeBackground)
-        framebuffer.fillRect(LunaRectI(x: 0, y: 30, w: width, h: 38), color: palette.raisedBackground)
-        framebuffer.fillRect(LunaRectI(x: 0, y: contentTop, w: sidebarWidth, h: contentHeight), color: palette.chromeBackground)
+        if damagePlan.path == .partialDamage,
+           let cache = staticFrameCache {
+            let restoreStart = LunaMonotonicClock.nowNanoseconds()
+            let restoredPixels = cache.restore(
+                into: &framebuffer,
+                regions: damagePlan.regions
+            )
+            let restoreEnd = LunaMonotonicClock.nowNanoseconds()
+
+            if restoredPixels > 0 {
+                let partialStart = LunaMonotonicClock.nowNanoseconds()
+                drawPartialFrame(
+                    into: &framebuffer,
+                    geometry: geometry,
+                    plan: damagePlan
+                )
+                let partialEnd = LunaMonotonicClock.nowNanoseconds()
+
+                staticFrameCache?.update(
+                    from: framebuffer,
+                    regions: damagePlan.regions
+                )
+
+                let report = LunaFrameRenderReport(
+                    path: .partialDamage,
+                    invalidationClass: LunaFrameInvalidationClass(
+                        invalidations: latestFrameInvalidations
+                    ),
+                    cacheRestoreNanoseconds: restoreEnd >= restoreStart
+                        ? restoreEnd - restoreStart
+                        : 0,
+                    dynamicSceneNanoseconds: partialEnd >= partialStart
+                        ? partialEnd - partialStart
+                        : 0,
+                    damagedRegionCount: damagePlan.regions.count,
+                    damagedPixelCount: restoredPixels
+                )
+                latestFrameRenderReport = report
+                pendingFrameRenderReport = report
+                runtimeAttributionRecorder.recordFrame(path: report.path)
+                return
+            }
+        }
+
+        let palette = MothApplicationTheme.renderPalette
+        framebuffer.clear(palette.windowBackground)
         framebuffer.fillRect(
-            LunaRectI(x: max(sidebarWidth + 1, width - minimapWidth), y: contentTop, w: minimapWidth, h: contentHeight),
+            geometry.menuBarBounds,
+            color: palette.chromeBackground
+        )
+        framebuffer.fillRect(
+            geometry.documentBarBounds,
+            color: palette.raisedBackground
+        )
+        framebuffer.fillRect(
+            geometry.sidebarBounds,
+            color: palette.chromeBackground
+        )
+        framebuffer.fillRect(
+            geometry.minimapBounds,
             color: palette.minimapBackground
         )
         framebuffer.fillRect(
-            LunaRectI(x: 0, y: max(0, height - statusHeight), w: width, h: statusHeight),
+            geometry.statusBounds,
             color: palette.raisedBackground
         )
-        framebuffer.fillRect(LunaRectI(x: sidebarWidth, y: contentTop, w: 1, h: contentHeight), color: palette.separator)
-        framebuffer.fillRect(LunaRectI(x: 0, y: contentTop - 1, w: width, h: 1), color: palette.separator)
-        framebuffer.fillRect(LunaRectI(x: 10, y: 63, w: min(180, max(40, width / 5)), h: 3), color: activeAccent)
+        framebuffer.fillRect(
+            geometry.sidebarSeparatorBounds,
+            color: palette.separator
+        )
+        framebuffer.fillRect(
+            geometry.contentTopSeparatorBounds,
+            color: palette.separator
+        )
+        framebuffer.fillRect(
+            geometry.accentRuleBounds,
+            color: activeAccent
+        )
 
-        drawChromeText(framebuffer: &framebuffer, statusHeight: statusHeight)
-        drawSidebar(framebuffer: &framebuffer, sidebarWidth: sidebarWidth)
-        drawPaneEditors(framebuffer: &framebuffer, bounds: paneBounds)
+        drawChromeText(
+            framebuffer: &framebuffer,
+            statusHeight: geometry.statusBounds.h
+        )
+        drawSidebar(
+            framebuffer: &framebuffer,
+            sidebarWidth: geometry.sidebarBounds.w
+        )
+        drawPaneEditors(
+            framebuffer: &framebuffer,
+            bounds: geometry.paneBounds
+        )
         drawMinimap(
             framebuffer: &framebuffer,
-            left: max(sidebarWidth + 1, width - minimapWidth),
-            top: contentTop,
-            width: minimapWidth,
-            height: contentHeight,
+            left: geometry.minimapBounds.x,
+            top: geometry.minimapBounds.y,
+            width: geometry.minimapBounds.w,
+            height: geometry.minimapBounds.h,
             accent: activeAccent
         )
+        // The restoration cache always represents the overlay-free base frame.
+        // Menus and quick panels are transient and must never contaminate it.
+        storeStaticFrameCache(from: framebuffer, size: size)
         drawMenuSurface(into: &framebuffer)
         drawCommandPalette(into: &framebuffer)
 
         let renderEnd = LunaMonotonicClock.nowNanoseconds()
+        let effectiveCacheMissReason = damagePlan.cacheMissReason
+            ?? (damagePlan.path == .partialDamage
+                ? .cacheRestoreFailed
+                : .notApplicable)
         let report = LunaFrameRenderReport(
             path: .fullScene,
             invalidationClass: LunaFrameInvalidationClass(
                 invalidations: latestFrameInvalidations
             ),
-            cacheMissReason: .notApplicable,
+            cacheMissReason: effectiveCacheMissReason,
             staticSceneNanoseconds: renderEnd >= renderStart
                 ? renderEnd - renderStart
                 : 0
         )
         latestFrameRenderReport = report
         pendingFrameRenderReport = report
+        runtimeAttributionRecorder.recordFrame(path: report.path)
+    }
+
+
+    private mutating func drawPartialFrame(
+        into framebuffer: inout LunaFramebuffer,
+        geometry: MothApplicationFrameGeometry,
+        plan: MothApplicationFrameDamagePlan
+    ) {
+        let palette = MothApplicationTheme.renderPalette
+
+        switch plan.kind {
+        case .documentEdit:
+            framebuffer.fillRect(
+                geometry.documentBarBounds,
+                color: palette.raisedBackground
+            )
+            framebuffer.fillRect(
+                geometry.paneBounds,
+                color: palette.windowBackground
+            )
+            framebuffer.fillRect(
+                geometry.minimapBounds,
+                color: palette.minimapBackground
+            )
+            framebuffer.fillRect(
+                geometry.statusBounds,
+                color: palette.raisedBackground
+            )
+            framebuffer.fillRect(
+                geometry.contentTopSeparatorBounds,
+                color: palette.separator
+            )
+            framebuffer.fillRect(
+                geometry.accentRuleBounds,
+                color: activeAccent
+            )
+
+            drawDocumentTitle(framebuffer: &framebuffer)
+            drawStatusText(
+                framebuffer: &framebuffer,
+                statusHeight: geometry.statusBounds.h
+            )
+            drawPaneEditors(
+                framebuffer: &framebuffer,
+                bounds: geometry.paneBounds
+            )
+            drawMinimap(
+                framebuffer: &framebuffer,
+                left: geometry.minimapBounds.x,
+                top: geometry.minimapBounds.y,
+                width: geometry.minimapBounds.w,
+                height: geometry.minimapBounds.h,
+                accent: activeAccent
+            )
+
+        case .paneVisual:
+            framebuffer.fillRect(
+                geometry.paneBounds,
+                color: palette.windowBackground
+            )
+            framebuffer.fillRect(
+                geometry.minimapBounds,
+                color: palette.minimapBackground
+            )
+            framebuffer.fillRect(
+                geometry.statusBounds,
+                color: palette.raisedBackground
+            )
+
+            drawMinimap(
+                framebuffer: &framebuffer,
+                left: geometry.minimapBounds.x,
+                top: geometry.minimapBounds.y,
+                width: geometry.minimapBounds.w,
+                height: geometry.minimapBounds.h,
+                accent: activeAccent
+            )
+            drawStatusText(
+                framebuffer: &framebuffer,
+                statusHeight: geometry.statusBounds.h
+            )
+            drawPaneEditors(
+                framebuffer: &framebuffer,
+                bounds: geometry.paneBounds
+            )
+
+        case .fullScene:
+            break
+        }
+    }
+
+    private mutating func storeStaticFrameCache(
+        from framebuffer: LunaFramebuffer,
+        size: LunaSizeI
+    ) {
+        if staticFrameCache?.matches(size: size) != true {
+            staticFrameCache = MothApplicationStaticFrameCache(size: size)
+        }
+        staticFrameCache?.replace(with: framebuffer)
     }
 
     // MARK: - Pane integration
@@ -445,13 +636,18 @@ public struct MothApplicationShellScene {
 
     private func makePaneSurface(
         paneID: LunaPaneID,
-        contentFrame: LunaPaneContentFrame
+        contentFrame: LunaPaneContentFrame,
+        presentationBundle suppliedBundle: MothDocumentViewportPresentation? = nil
     ) -> MothPaneEditorSurface {
-        MothPaneEditorSurface(
+        runtimeAttributionRecorder.recordPaneSurfaceBuild()
+        let bundle = suppliedBundle ?? currentViewportPresentation()
+        return MothPaneEditorSurface(
             paneID: paneID,
             contentFrame: contentFrame,
             viewState: viewState(for: paneID),
-            snapshot: lunaSnapshot(),
+            snapshot: bundle.storageSnapshot,
+            presentation: bundle.presentation,
+            virtualizationContext: bundle.virtualizationContext,
             isActive: paneID == paneWorkspace.activePaneID
         )
     }
@@ -1270,7 +1466,7 @@ public struct MothApplicationShellScene {
     }
 
     private mutating func moveActiveCaretToLineBoundary(end: Bool, extendingSelection: Bool) {
-        let document = lunaSnapshot().staticDocument
+        let document = currentViewportPresentation().presentation.document
         let view = activeViewState
         let location = document.location(forAbsoluteUTF8Offset: view.caret.rawValue)
         let column = end ? (document[line: location.lineIndex]?.utf8Length ?? 0) : 0
@@ -1285,7 +1481,7 @@ public struct MothApplicationShellScene {
     }
 
     private mutating func moveActiveCaretVertically(by delta: Int, extendingSelection: Bool) {
-        let document = lunaSnapshot().staticDocument
+        let document = currentViewportPresentation().presentation.document
         let view = activeViewState
         let current = document.location(forAbsoluteUTF8Offset: view.caret.rawValue)
         let preferred = view.preferredUTF8Column ?? current.utf8Column
@@ -1440,7 +1636,10 @@ public struct MothApplicationShellScene {
     }
 
     private mutating func install(document: MothFileDocument) {
+        let previousDocumentID = self.document.snapshot().id.description
+        viewportPresentationStore.invalidate(documentID: previousDocumentID)
         self.document = document
+        staticFrameCache = nil
         let snapshot = document.buffer.snapshot()
         primaryView = MothEditorViewState(
             bufferID: document.buffer.id,
@@ -1468,8 +1667,23 @@ public struct MothApplicationShellScene {
         _ = secondaryView.synchronize(with: snapshot)
     }
 
-    private func lunaSnapshot() -> LunaTextStorageSnapshot {
-        MothLunaTextStorageAdapter(buffer: buffer).textSnapshot()
+    private func currentViewportPresentation() -> MothDocumentViewportPresentation {
+        let bufferSnapshot = buffer.snapshot()
+        let key = MothDocumentViewportPresentationKey(
+            presentationKey: MothDocumentPresentationKey(
+                documentID: document.snapshot().id.description,
+                revision: bufferSnapshot.revision.rawValue
+            ),
+            geometryGeneration: 0
+        )
+        if let cached = viewportPresentationStore.cachedPresentation(for: key) {
+            runtimeAttributionRecorder.recordPresentationRequest(cacheHit: true)
+            return cached
+        }
+        runtimeAttributionRecorder.recordPresentationRequest(cacheHit: false)
+        return viewportPresentationStore.presentation(for: key) {
+            MothLunaTextStorageAdapter(buffer: buffer).textSnapshot()
+        }
     }
 
     // MARK: - Drawing
@@ -1483,6 +1697,17 @@ public struct MothApplicationShellScene {
         framebuffer: inout LunaFramebuffer,
         statusHeight: Int
     ) {
+        drawApplicationTitle(framebuffer: &framebuffer)
+        drawDocumentTitle(framebuffer: &framebuffer)
+        drawStatusText(
+            framebuffer: &framebuffer,
+            statusHeight: statusHeight
+        )
+    }
+
+    private func drawApplicationTitle(
+        framebuffer: inout LunaFramebuffer
+    ) {
         let palette = MothApplicationTheme.renderPalette
         MothUnicodeTextPainter.draw(
             "MOTH TEXT",
@@ -1491,6 +1716,12 @@ public struct MothApplicationShellScene {
             color: palette.text,
             into: &framebuffer
         )
+    }
+
+    private func drawDocumentTitle(
+        framebuffer: inout LunaFramebuffer
+    ) {
+        let palette = MothApplicationTheme.renderPalette
         let documentSnapshot = document.snapshot()
         let titleX: Int
         if documentSnapshot.isDirty {
@@ -1513,7 +1744,14 @@ public struct MothApplicationShellScene {
             maximumWidth: max(0, framebuffer.width - titleX - 12),
             into: &framebuffer
         )
+    }
 
+    private func drawStatusText(
+        framebuffer: inout LunaFramebuffer,
+        statusHeight: Int
+    ) {
+        let palette = MothApplicationTheme.renderPalette
+        let documentSnapshot = document.snapshot()
         let snapshot = documentSnapshot.buffer
         let history = document.history.status()
         let dirty = documentSnapshot.isDirty ? "MODIFIED" : "SAVED"
@@ -1710,6 +1948,7 @@ public struct MothApplicationShellScene {
         let container = paneContainer(bounds: bounds)
         let layout = container.layout()
         let frames = layout.contentFrames(metrics: .editor)
+        let presentationBundle = currentViewportPresentation()
 
         for frame in frames {
             framebuffer.fillRect(frame.headerBounds, color: palette.raisedBackground)
@@ -1745,7 +1984,11 @@ public struct MothApplicationShellScene {
                 maximumWidth: 64,
                 into: &framebuffer
             )
-            makePaneSurface(paneID: frame.paneID, contentFrame: frame).draw(into: &framebuffer)
+            makePaneSurface(
+                paneID: frame.paneID,
+                contentFrame: frame,
+                presentationBundle: presentationBundle
+            ).draw(into: &framebuffer)
         }
 
         for divider in layout.dividerFrames {
@@ -1770,17 +2013,25 @@ public struct MothApplicationShellScene {
         height: Int,
         accent: LunaRender.LunaRGBA8
     ) {
-        let document = lunaSnapshot().staticDocument
+        let document = currentViewportPresentation().presentation.document
         let usableWidth = max(8, width - 20)
-        let rows = min(document.lineCount, max(0, (height - 20) / 6))
-        let firstVisibleLine = activeViewState.viewport.firstVisibleLine
-        for index in 0..<rows {
-            guard let line = document[line: index] else { continue }
-            let y = top + 10 + index * 6
-            let length = min(usableWidth, max(2, line.text.count * 2))
+        let plan = MothMinimapSamplePlan(
+            logicalLineCount: document.lineCount,
+            activeLogicalLineIndex: activeViewState.viewport.firstVisibleLine,
+            availableHeight: max(0, height - 20),
+            rowStride: 6
+        )
+        runtimeAttributionRecorder.recordMinimapPlan(
+            sampleCount: plan.samples.count
+        )
+        for sample in plan.samples {
+            guard let line = document[line: sample.logicalLineIndex] else { continue }
+            let y = top + 10 + sample.rowIndex * 6
+            let boundedLength = min(usableWidth, line.utf8Length)
+            let length = min(usableWidth, max(2, boundedLength * 2))
             framebuffer.fillRect(
                 LunaRectI(x: left + 10, y: y, w: length, h: 2),
-                color: index == firstVisibleLine
+                color: sample.isActiveLineSample
                     ? accent
                     : LunaRender.LunaRGBA8(r: 55, g: 58, b: 68)
             )

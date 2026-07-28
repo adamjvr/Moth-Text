@@ -163,6 +163,11 @@ if options.headlessSmoke {
         "[MothTextLinux] Headless render smoke passed with Unicode font: "
             + (diagnostics.fontPath ?? "<unknown>")
     )
+    do {
+        try shell.flushRuntimeWorkAttributionIfRequested()
+    } catch {
+        writeError("[MothTextLinux] Could not write Moth runtime trace: \(error)")
+    }
     exit(EXIT_SUCCESS)
 }
 
@@ -175,6 +180,11 @@ let result = runLunaSDLApplication(
     ),
     scene: &scene
 )
+do {
+    try scene.shell.flushRuntimeWorkAttributionIfRequested()
+} catch {
+    writeError("[MothTextLinux] Could not write Moth runtime trace: \(error)")
+}
 
 if result != 0 {
     writeError("[MothTextLinux] Luna host exited with code \(result)")

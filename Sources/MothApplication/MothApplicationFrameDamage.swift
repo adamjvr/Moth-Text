@@ -166,6 +166,7 @@ public struct MothApplicationFrameDamagePlan {
             path: .partialDamage,
             regions: [
                 geometry.paneBounds,
+                geometry.minimapBounds,
                 geometry.statusBounds,
             ]
         )

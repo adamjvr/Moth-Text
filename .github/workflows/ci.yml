@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, a1.1-measured-audit, c2.5g-runtime-attribution]
   pull_request:
-    branches: [main]
+    branches: [main, a1.1-measured-audit]
   workflow_dispatch:
 
 permissions:

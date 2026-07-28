@@ -23,9 +23,11 @@ struct MothPaneEditorSurface {
         contentFrame: LunaPaneContentFrame,
         viewState: MothEditorViewState,
         snapshot: LunaTextStorageSnapshot,
+        presentation: LunaStaticTextPresentationSnapshot,
+        virtualizationContext: LunaStaticTextVirtualizationContext,
         isActive: Bool
     ) {
-        let presentation = MothLunaViewProjection.presentation(
+        let viewPresentation = MothLunaViewProjection.presentation(
             for: viewState,
             snapshot: snapshot
         )
@@ -35,18 +37,19 @@ struct MothPaneEditorSurface {
         self.textView = LunaStaticTextView(
             id: contentFrame.nodeID.child("text-view"),
             bounds: contentFrame.contentBounds,
-            document: snapshot.staticDocument,
+            document: presentation.document,
             scrollTopLine: viewState.viewport.firstVisibleLine,
             scrollTopVisualRow: viewState.viewport.firstVisibleVisualRow,
-            currentLineIndex: presentation.caret.location.lineIndex,
+            currentLineIndex: viewPresentation.caret.location.lineIndex,
             theme: MothApplicationTheme.theme,
             metrics: MothUnicodeTextPainter.editorMetrics,
             wrapMode: .soft,
             geometryProvider: MothUnicodeTextPainter.geometryProvider,
             isFocused: isActive,
             isEditable: true,
-            caret: isActive ? presentation.caret : nil,
-            selection: presentation.selection
+            caret: isActive ? viewPresentation.caret : nil,
+            selection: viewPresentation.selection,
+            virtualizationContext: virtualizationContext
         )
     }
 

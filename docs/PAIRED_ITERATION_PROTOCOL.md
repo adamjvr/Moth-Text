@@ -219,3 +219,11 @@ checkpoint contains no source changes and does not change the 116-test baseline.
 Next run A1.1 measurement on 50, 500, 5,000, and 50,000 line fixtures. Do not begin
 M3A or C2.5 until the audit report classifies findings and the paired repositories
 reconvene.
+
+## Native scalability rejection rule
+
+Automated correctness does not close a scalability phase. A fixture that becomes
+sluggish, hangs, crashes, or requires force quit rejects the phase. Preserve the
+checkpoint, record the result in canonical status documents, correct source in a
+new commit, and do not merge either paired audit branch or begin M3A until the full
+native matrix passes.

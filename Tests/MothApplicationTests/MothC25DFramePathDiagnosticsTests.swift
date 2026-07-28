@@ -23,7 +23,7 @@ final class MothC25DFramePathDiagnosticsTests: XCTestCase {
         let report = shell.takeFrameRenderReport()
         XCTAssertEqual(report?.path, .fullScene)
         XCTAssertEqual(report?.invalidationClass, .inputDriven)
-        XCTAssertEqual(report?.cacheMissReason, .notApplicable)
+        XCTAssertEqual(report?.cacheMissReason, .cacheAbsent)
         XCTAssertNil(shell.takeFrameRenderReport())
     }
 

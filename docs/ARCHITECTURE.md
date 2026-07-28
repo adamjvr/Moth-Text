@@ -405,3 +405,15 @@ Moth must move toward one immutable revision-keyed presentation snapshot shared 
 both panes, caret/hit-test helpers, accessibility, and minimap metadata. Luna owns
 the reusable virtualized line/wrap/visible-row machinery; Moth owns document and
 line revision identity, source storage, and product viewport policy.
+
+## C2.5F virtualized presentation ownership
+
+Moth owns document identity, revision identity, source storage, pane viewport state,
+and bounded lifetime of revision presentation bundles. One bundle contains the
+Moth-to-Luna storage snapshot, one immutable Luna presentation snapshot, and one
+Luna virtualization context. Both panes and minimap metadata consume that bundle.
+
+Luna owns viewport planning, lazy line shaping, wrap records, global visual-row
+mapping, exact visible geometry, and bounded width/line/segment caches. Neither
+repository creates a background layout thread in this phase; the accepted scene
+remains synchronous and event driven.

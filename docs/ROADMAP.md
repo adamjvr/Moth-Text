@@ -228,21 +228,26 @@ Native result: this condition passed for the ordinary Moth graphical shell. It
 does not claim large-document acceptance. The generated roughly 500-line document
 froze or became unusably slow, and the Luna animated demos remained sluggish.
 
-### A1 — Paired architecture, scalability, and quality audit
+### Convergence C2.5 — Scalable presentation and bounded damage
 
-**Current next phase.**
+C2.5A–E established reusable presentation, wrap/index primitives, bounded damage,
+and semantic dispatch fairness. The first C2.5E native matrix rejected total-document
+scaling and exposed that the Moth checkpoint had not committed the intended live
+shell source.
 
-A1 begins with measured large-document and demo-composition analysis. Record
-operation counts and timings for 50, 500, 5,000, and 50,000 line fixtures across
-one/two panes, equal/unequal widths, wrapping on/off, idle render, scroll, typing,
-navigation, and resize. Audit snapshot duplication, whole-document line/wrap
-scans, shaping requests, cache churn, minimap projection, framebuffer copying,
-CPU drawing, SDL presentation, runtime ownership, Swift API quality,
-Sendable/locking claims, tests, documentation, and roadmap consistency.
+### Convergence C2.5F — Virtualized document presentation
 
-Publish Critical/High/Medium/Low/Accepted-Debt findings and reconvene before any
-implementation. A likely C2.5 virtualized-layout and demo-composition phase is only
-a candidate until the audit confirms it. Critical findings block M3A.
+**Current corrective phase.**
+
+- Luna shapes visible rows plus bounded overscan through an opt-in revision context.
+- Moth builds one projection per document revision and shares it across both panes
+  and minimap metadata.
+- Width, line, segment, and revision caches have explicit retention limits.
+- The minimap performs height-bounded sampling and no text shaping.
+- The real Moth shell consumes bounded damage and the exact Luna C2.5F gitlink.
+
+Exit requires usable native 50-, 500-, 5,000-, and 50,000-line fixtures with no
+force quit and operation counts that remain viewport bounded.
 
 ### M3A — Document sheets and real tabs
 
