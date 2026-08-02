@@ -52,7 +52,7 @@ final class MothC25HLargeDocumentPathTests: XCTestCase {
         scene.render(into: &framebuffer)
 
         let snapshot = scene.runtimeWorkAttribution
-        XCTAssertEqual(snapshot.schemaVersion, 3)
+        XCTAssertEqual(snapshot.schemaVersion, 4)
         XCTAssertGreaterThan(snapshot.minimapSampleCount, 0)
         XCTAssertEqual(
             snapshot.minimapMetadataLookupCount,

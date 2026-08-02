@@ -37,7 +37,7 @@ final class MothC25IInteractionSnapshotTests: XCTestCase {
             after.paneSurfaceBuildCount - before.paneSurfaceBuildCount,
             2
         )
-        XCTAssertEqual(after.schemaVersion, 3)
+        XCTAssertEqual(after.schemaVersion, 4)
     }
 
     func testPointerInteractionBuildsOneReusablePaneSnapshot() {
@@ -52,26 +52,31 @@ final class MothC25IInteractionSnapshotTests: XCTestCase {
         )
 
         let before = scene.runtimeWorkAttribution
-        _ = scene.handleHostEvent(
-            .pointer(event),
-            framebufferSize: size
-        )
+        let first = scene.handleHostEvent(.pointer(event), framebufferSize: size)
+        let second = scene.handleHostEvent(.pointer(event), framebufferSize: size)
         let after = scene.runtimeWorkAttribution
 
+        XCTAssertTrue(first.reasons.isEmpty)
+        XCTAssertTrue(second.reasons.isEmpty)
+        XCTAssertEqual(
+            after.interactionSnapshotRequestCount
+                - before.interactionSnapshotRequestCount,
+            2
+        )
         XCTAssertEqual(
             after.interactionSnapshotBuildCount
                 - before.interactionSnapshotBuildCount,
             1
         )
         XCTAssertEqual(
-            after.presentationRequestCount
-                - before.presentationRequestCount,
+            after.interactionSnapshotCacheHitCount
+                - before.interactionSnapshotCacheHitCount,
             1
         )
         XCTAssertEqual(
-            after.interactionSnapshotSurfaceCount
-                - before.interactionSnapshotSurfaceCount,
-            2
+            after.interactionTargetSurfaceBuildCount
+                - before.interactionTargetSurfaceBuildCount,
+            1
         )
     }
 

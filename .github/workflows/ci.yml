@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, a1.1-measured-audit, c2.5g-runtime-attribution, c2.5h-large-document-path, c2.5i-interaction-reuse]
+    branches: [main, a1.1-measured-audit, c2.5g-runtime-attribution, c2.5h-large-document-path, c2.5i-interaction-reuse, c2.5j-persistent-interaction-damage]
   pull_request:
     branches: [main, a1.1-measured-audit]
   workflow_dispatch:

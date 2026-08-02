@@ -2,21 +2,34 @@
 //
 // MothRuntimeWorkAttribution.swift
 //
-// C2.5I: measured interaction-snapshot and presentation-lookup attribution.
+// C2.5J: persistent interaction-cache and narrowed-invalidation attribution.
 
 import Foundation
 import LunaHostCore
 
 public struct MothRuntimeWorkAttributionSnapshot: Codable, Hashable, Sendable {
-    public var schemaVersion: Int = 3
+    public var schemaVersion: Int = 4
     public var presentationRequestCount: UInt64 = 0
     public var presentationBuildCount: UInt64 = 0
     public var presentationCacheHitCount: UInt64 = 0
     public var presentationLookupNanoseconds: UInt64 = 0
     public var paneSurfaceBuildCount: UInt64 = 0
+
+    public var interactionSnapshotRequestCount: UInt64 = 0
     public var interactionSnapshotBuildCount: UInt64 = 0
-    public var interactionSnapshotSurfaceCount: UInt64 = 0
+    public var interactionSnapshotCacheHitCount: UInt64 = 0
     public var interactionSnapshotBuildNanoseconds: UInt64 = 0
+    public var interactionTargetSurfaceBuildCount: UInt64 = 0
+
+    /// Retained for trace compatibility with C2.5I. In schema 4 this counts lazy
+    /// interaction-target surface builds rather than eager surfaces per snapshot.
+    public var interactionSnapshotSurfaceCount: UInt64 = 0
+
+    public var noRenderHostEventCount: UInt64 = 0
+    public var paneVisualHostEventCount: UInt64 = 0
+    public var documentEditHostEventCount: UInt64 = 0
+    public var fullSceneHostEventCount: UInt64 = 0
+
     public var minimapPlanCount: UInt64 = 0
     public var minimapSampleCount: UInt64 = 0
     public var minimapMetadataLookupCount: UInt64 = 0
@@ -44,6 +57,12 @@ public struct MothRuntimeWorkAttributionSnapshot: Codable, Hashable, Sendable {
     public var averageInteractionSnapshotBuildNanoseconds: UInt64 {
         interactionSnapshotBuildCount > 0
             ? interactionSnapshotBuildNanoseconds / interactionSnapshotBuildCount
+            : 0
+    }
+
+    public var interactionSnapshotCacheHitRatePermille: UInt64 {
+        interactionSnapshotRequestCount > 0
+            ? interactionSnapshotCacheHitCount * 1_000 / interactionSnapshotRequestCount
             : 0
     }
 }
@@ -78,14 +97,56 @@ public final class MothRuntimeWorkAttributionRecorder: @unchecked Sendable {
         lock.withLock { storage.paneSurfaceBuildCount &+= 1 }
     }
 
-    func recordInteractionSnapshot(
-        surfaceCount: Int,
+    func recordInteractionSnapshotRequest(
+        cacheHit: Bool,
         elapsedNanoseconds: UInt64
     ) {
         lock.withLock {
-            storage.interactionSnapshotBuildCount &+= 1
-            storage.interactionSnapshotSurfaceCount &+= UInt64(max(0, surfaceCount))
-            storage.interactionSnapshotBuildNanoseconds &+= elapsedNanoseconds
+            storage.interactionSnapshotRequestCount &+= 1
+            if cacheHit {
+                storage.interactionSnapshotCacheHitCount &+= 1
+            } else {
+                storage.interactionSnapshotBuildCount &+= 1
+                storage.interactionSnapshotBuildNanoseconds &+= elapsedNanoseconds
+            }
+        }
+    }
+
+    func recordInteractionTargetSurfaceBuild() {
+        lock.withLock {
+            storage.interactionTargetSurfaceBuildCount &+= 1
+            storage.interactionSnapshotSurfaceCount &+= 1
+        }
+    }
+
+    func recordHostInvalidation(_ invalidations: LunaFrameInvalidationSet) {
+        lock.withLock {
+            let reasons = invalidations.reasons
+            if reasons.isEmpty {
+                storage.noRenderHostEventCount &+= 1
+                return
+            }
+
+            let documentReasons: Set<LunaInvalidationReason> = [
+                .textInput,
+                .documentChanged,
+            ]
+            if !reasons.isDisjoint(with: documentReasons) {
+                storage.documentEditHostEventCount &+= 1
+                return
+            }
+
+            let paneReasons: Set<LunaInvalidationReason> = [
+                .scrollChanged,
+                .selectionChanged,
+                .caretBlink,
+            ]
+            if reasons.isSubset(of: paneReasons) {
+                storage.paneVisualHostEventCount &+= 1
+                return
+            }
+
+            storage.fullSceneHostEventCount &+= 1
         }
     }
 
