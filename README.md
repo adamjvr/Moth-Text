@@ -313,6 +313,7 @@ See:
 - [`docs/PAIRED_ITERATION_PROTOCOL.md`](docs/PAIRED_ITERATION_PROTOCOL.md)
 - [`docs/TEXT_GEOMETRY_AND_SCROLLING.md`](docs/TEXT_GEOMETRY_AND_SCROLLING.md)
 - [`docs/INPUT_LATENCY.md`](docs/INPUT_LATENCY.md)
+- [`docs/TESTING_COMMAND_CHEAT_SHEET.md`](docs/TESTING_COMMAND_CHEAT_SHEET.md)
 
 ## C2.5F — Virtualized document presentation
 
