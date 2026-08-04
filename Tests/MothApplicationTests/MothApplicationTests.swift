@@ -361,7 +361,7 @@ final class MothApplicationTests: XCTestCase {
         _ = scene.handleHostEvent(
             .keyboard(LunaKeyboardEvent(
                 key: .tab,
-                modifiers: LunaKeyboardModifiers(control: true)
+                modifiers: LunaKeyboardModifiers(control: true, option: true)
             )),
             framebufferSize: scene.framebufferSize
         )

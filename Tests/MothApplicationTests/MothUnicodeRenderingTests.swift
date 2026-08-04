@@ -38,7 +38,7 @@ final class MothUnicodeRenderingTests: XCTestCase {
         )
     }
 
-    func testDirtyIndicatorIsGeometryRatherThanAFontGlyph() {
+    func testDirtyIndicatorIsGeometryRatherThanAFontGlyph() throws {
         var scene = MothApplicationShellScene(
             initialSize: LunaSizeI(width: 800, height: 500),
             initialText: "base"
@@ -55,10 +55,21 @@ final class MothUnicodeRenderingTests: XCTestCase {
         var dirty = LunaFramebuffer(width: 800, height: 500)
         scene.render(into: &dirty)
 
-        let cleanMarker = markerPixels(in: clean)
-        let dirtyMarker = markerPixels(in: dirty)
+        let activeSheetID = try XCTUnwrap(scene.activeDocumentSheetID)
+        let markerBounds = try XCTUnwrap(
+            scene.documentTabLayout().tabFrames.first {
+                $0.tab.id.rawValue == activeSheetID.rawValue
+            }?.dirtyIndicatorBounds
+        )
+
+        let cleanMarker = markerPixels(in: clean, bounds: markerBounds)
+        let dirtyMarker = markerPixels(in: dirty, bounds: markerBounds)
         XCTAssertNotEqual(cleanMarker, dirtyMarker)
-        XCTAssertEqual(Set(dirtyMarker).count, 1, "The dirty marker should be one solid geometry color")
+        XCTAssertEqual(
+            Set(dirtyMarker).count,
+            1,
+            "The dirty marker should be one solid geometry color"
+        )
     }
 
     func testProductionMothTextPaintingDoesNotEmbedUnicodeBulletMarkers() throws {
@@ -113,10 +124,13 @@ final class MothUnicodeRenderingTests: XCTestCase {
         )
     }
 
-    private func markerPixels(in framebuffer: LunaFramebuffer) -> [[UInt8]] {
+    private func markerPixels(
+        in framebuffer: LunaFramebuffer,
+        bounds: LunaRectI
+    ) -> [[UInt8]] {
         var result: [[UInt8]] = []
-        for y in 47..<52 {
-            for x in 18..<23 {
+        for y in bounds.y..<(bounds.y + bounds.h) {
+            for x in bounds.x..<(bounds.x + bounds.w) {
                 result.append(pixel(in: framebuffer, x: x, y: y))
             }
         }

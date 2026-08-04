@@ -321,10 +321,10 @@ large-document matrix was rejected: 500 lines were sluggish and the 5,000- and
 50,000-line fixtures required force quit. The committed checkpoint also contained
 patch artifacts rather than the intended live Moth source integration.
 
-C2.5F repairs the live shell, consumes Luna's virtualized text context, shares one
-revision projection across both panes and the minimap, bounds retained revision and
-geometry state, and samples the minimap by pixel height. M3A remains blocked until
-the 50/500/5,000/50,000-line native matrix passes.
+C2.5F repaired the live shell and introduced bounded virtualized presentation.
+C2.5G–J then completed attribution, lazy metadata, persistent interaction reuse, and
+narrower damage. The accepted 5,000- and 50,000-line C2.5J matrix closes the M3A
+scalability gate.
 
 ## Build
 
@@ -391,12 +391,27 @@ M2.2B1 replaces decorative menu labels with interactive command surfaces. C2.2
 makes shaped insertion geometry authoritative and adds normal pane-local vertical
 scrolling. C2.4 keeps raw acquisition separate from semantic scheduling and presentation,
 then removes linear ordering-array maintenance from shaped-layout cache hits. Ctrl/Cmd+N
-still safely replaces the single current document for now. C2.4 ordinary-interaction
-acceptance passed, but large-document and Luna demo scalability did not. A1.1
-measurement is next; M3A real document tabs remains blocked until the audit is
-reviewed and all Critical findings are resolved or deliberately reclassified.
+still safely replaces the single current document for now. C2.4 ordinary interaction was followed by the measured C2.5A–J scalability
+sequence. C2.5J is accepted, and M3A real document tabs is now the active product
+phase.
 
 ## License
 
 Moth Text is licensed under the **Mozilla Public License 2.0 (`MPL-2.0`)**,
 matching Luna-UI. The complete license text is provided in [`LICENSE`](LICENSE).
+
+## M3A — Document sheets and real tabs {#M3A_PRODUCT_PHASE_CURRENT}
+
+**Current product phase after accepted C2.5J.** Moth now drives normal iteration.
+Luna changes are made only when a Moth feature exposes a reusable component gap,
+framework defect, platform-boundary problem, or measured Luna-owned regression.
+
+M3A replaces the single-document lifecycle with a Moth-owned ordered document-sheet
+workspace projected through Luna's existing product-neutral tab layout, overflow,
+hit-testing, close-target, and accessibility mechanics. New File appends a tab,
+Open reuses canonical files, each sheet retains independent document/history/view
+state, the sidebar projects the same sheets as clickable Open Files rows, and dirty
+close policy targets only the selected sheet.
+
+Visible Find/Replace remains M2.2B2 and follows M3A so commands and panel state can
+target a stable active document sheet.

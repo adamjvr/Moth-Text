@@ -237,7 +237,7 @@ shell source.
 
 ### Convergence C2.5F — Virtualized document presentation
 
-**Current corrective phase.**
+**Historical corrective phase; completed by the accepted C2.5J baseline.**
 
 - Luna shapes visible rows plus bounded overscan through an opt-in revision context.
 - Moth builds one projection per document revision and shares it across both panes
@@ -251,7 +251,7 @@ force quit and operation counts that remain viewport bounded.
 
 ### M3A — Document sheets and real tabs
 
-**Deferred until A1 audit acceptance.**
+**Current product phase — unblocked by accepted C2.5J.**
 
 - Moth-owned `MothDocumentSheetID` and document-sheet collection;
 - one active sheet projected to the existing editor panes;
@@ -320,3 +320,23 @@ Sublime baseline.
 
 Compatibility formats translate into native Moth/Luna structures; they do not
 become the internal architecture.
+
+## M3A execution update after C2.5J {#M3A_EXECUTION_UPDATE_AFTER_C25J}
+
+C2.5G–J closed the measured large-document blocker: runtime attribution, lazy line
+metadata, event-scoped then persistent interaction snapshots, and narrower damage
+were accepted with usable 5,000- and 50,000-line native fixtures. Performance is
+now a regression gate rather than the purpose of every iteration.
+
+The execution order remains:
+
+1. **M3A — Document sheets and real tabs** (current);
+2. **M2.2B2 — Visible Find/Replace**;
+3. **M2.2B3 — External-change and session groundwork**;
+4. remaining M3 workspace/editor-group/session phases;
+5. M4 interaction core;
+6. M5 syntax and ecosystem foundations.
+
+Moth product milestones drive work. Luna receives supporting changes only when the
+current Moth feature demonstrates a generic requirement or a confirmed framework
+problem.

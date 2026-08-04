@@ -71,7 +71,7 @@ final class MothApplicationHistoryTests: XCTestCase {
         XCTAssertEqual(scene.bufferSnapshot.text, "Xabc")
 
         _ = scene.handleHostEvent(
-            .keyboard(LunaKeyboardEvent(key: .tab, modifiers: LunaKeyboardModifiers(control: true))),
+            .keyboard(LunaKeyboardEvent(key: .tab, modifiers: LunaKeyboardModifiers(control: true, option: true))),
             framebufferSize: size
         )
         XCTAssertEqual(scene.activePaneID, MothApplicationShellScene.secondaryPaneID)

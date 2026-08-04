@@ -417,3 +417,16 @@ Luna owns viewport planning, lazy line shaping, wrap records, global visual-row
 mapping, exact visible geometry, and bounded width/line/segment caches. Neither
 repository creates a background layout thread in this phase; the accepted scene
 remains synchronous and event driven.
+
+## M3A document-sheet architecture {#M3A_DOCUMENT_SHEET_ARCHITECTURE}
+
+`MothDocumentSheetCollection` is product-owned ordered workspace state. Every
+sheet has a stable sheet ID, one `MothFileDocument`, and independent primary and
+secondary `MothEditorViewState` values. The graphical shell temporarily projects
+the active sheet through its established `document`, `primaryView`, and
+`secondaryView` integration seams while inactive sheets remain retained in the
+collection.
+
+Luna receives `LunaShellTab` projections only. Luna never owns Moth documents,
+canonical-file matching, history, dirty prompts, activation policy, close policy,
+or session identity.

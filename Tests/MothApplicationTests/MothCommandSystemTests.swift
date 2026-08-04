@@ -30,6 +30,14 @@ final class MothCommandSystemTests: XCTestCase {
             LunaKeyEquivalent("S", modifiers: [.primary, .shift])
         )
         XCTAssertEqual(descriptors[MothCommandID.selectAll]?.menuPath, ["Selection"])
+        XCTAssertEqual(
+            descriptors[MothCommandID.closeTab]?.defaultKey,
+            LunaKeyEquivalent("W", modifiers: [.primary])
+        )
+        XCTAssertEqual(
+            descriptors[MothCommandID.nextTab]?.defaultKey,
+            LunaKeyEquivalent("Tab", modifiers: [.primary])
+        )
         XCTAssertEqual(descriptors[MothCommandID.showCommandPalette]?.isPaletteVisible, false)
     }
 
@@ -58,6 +66,7 @@ final class MothCommandSystemTests: XCTestCase {
 
     func testKeyboardNewFileInstallsFreshCleanDocumentAndSuppressesShortcutText() {
         var scene = MothApplicationShellScene(initialText: "old")
+        let oldSheet = try! XCTUnwrap(scene.activeDocumentSheetID)
         let oldDocument = scene.documentSnapshot.id
         let oldBuffer = scene.bufferSnapshot.id
 
@@ -67,13 +76,15 @@ final class MothCommandSystemTests: XCTestCase {
             framebufferSize: size
         )
 
+        XCTAssertEqual(scene.documentSheetCount, 2)
         XCTAssertEqual(scene.bufferSnapshot.text, "")
         XCTAssertNotEqual(scene.documentSnapshot.id, oldDocument)
         XCTAssertNotEqual(scene.bufferSnapshot.id, oldBuffer)
         XCTAssertFalse(scene.documentSnapshot.isDirty)
         XCTAssertEqual(scene.lastCommandID, MothCommandID.newFile)
         XCTAssertEqual(scene.lastCommandSource, "keyboard")
-        XCTAssertEqual(scene.activePaneID, MothApplicationShellScene.primaryPaneID)
+        XCTAssertTrue(scene.activateDocumentSheet(oldSheet))
+        XCTAssertEqual(scene.bufferSnapshot.text, "old")
     }
 
     func testNewFilePreservesPaneGeometryButResetsViewsAndHistory() {
@@ -83,6 +94,7 @@ final class MothCommandSystemTests: XCTestCase {
 
         _ = scene.executeCommand(MothCommandID.newFile)
 
+        XCTAssertEqual(scene.documentSheetCount, 2)
         XCTAssertEqual(scene.paneWorkspace.root, rootBefore)
         XCTAssertEqual(scene.activePaneID, MothApplicationShellScene.primaryPaneID)
         XCTAssertEqual(scene.primaryView.caret, .zero)
@@ -95,14 +107,16 @@ final class MothCommandSystemTests: XCTestCase {
         let dialogs = LunaScriptedDialogService(unsavedDecisions: [.discard])
         var scene = MothApplicationShellScene(initialText: "", dialogService: dialogs)
         type("dirty", into: &scene)
-        let oldID = scene.documentSnapshot.id
+        let oldSheet = try! XCTUnwrap(scene.activeDocumentSheetID)
 
         let result = scene.executeCommand(MothCommandID.newFile)
 
         XCTAssertTrue(result.didHandle)
-        XCTAssertNotEqual(scene.documentSnapshot.id, oldID)
+        XCTAssertEqual(scene.documentSheetCount, 2)
         XCTAssertEqual(scene.bufferSnapshot.text, "")
-        XCTAssertFalse(scene.documentSnapshot.isDirty)
+        XCTAssertTrue(scene.activateDocumentSheet(oldSheet))
+        XCTAssertEqual(scene.bufferSnapshot.text, "dirty")
+        XCTAssertTrue(scene.documentSnapshot.isDirty)
     }
 
     func testDirtyNewFileCancelPreservesEveryDocumentIdentity() {
@@ -111,25 +125,24 @@ final class MothCommandSystemTests: XCTestCase {
         type("dirty", into: &scene)
         let documentBefore = scene.documentSnapshot
         let historyBefore = scene.historyStatus
-        let primaryBefore = scene.primaryView
-        let secondaryBefore = scene.secondaryView
+        let oldSheet = try! XCTUnwrap(scene.activeDocumentSheetID)
 
         let result = scene.executeCommand(MothCommandID.newFile)
 
-        XCTAssertFalse(result.didHandle)
+        XCTAssertTrue(result.didHandle)
+        XCTAssertEqual(scene.documentSheetCount, 2)
+        XCTAssertTrue(scene.activateDocumentSheet(oldSheet))
         XCTAssertEqual(scene.documentSnapshot.id, documentBefore.id)
         XCTAssertEqual(scene.bufferSnapshot.id, documentBefore.buffer.id)
         XCTAssertEqual(scene.bufferSnapshot.text, "dirty")
         XCTAssertEqual(scene.historyStatus.currentState, historyBefore.currentState)
-        XCTAssertEqual(scene.primaryView, primaryBefore)
-        XCTAssertEqual(scene.secondaryView, secondaryBefore)
     }
 
     func testDirtyUntitledNewFileSaveAsMustSucceedBeforeReplacement() throws {
         let directory = temporaryDirectory()
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
-        let destination = directory.appendingPathComponent("saved-before-new.txt")
+        let destination = directory.appendingPathComponent("should-not-save-before-new.txt")
         let dialogs = LunaScriptedDialogService(
             unsavedDecisions: [.save],
             savePathSelections: [destination.path],
@@ -137,25 +150,29 @@ final class MothCommandSystemTests: XCTestCase {
         )
         var scene = MothApplicationShellScene(initialText: "", dialogService: dialogs)
         type("preserve me", into: &scene)
+        let oldSheet = try XCTUnwrap(scene.activeDocumentSheetID)
 
         let result = scene.executeCommand(MothCommandID.newFile)
 
         XCTAssertTrue(result.didHandle)
-        XCTAssertEqual(try String(contentsOf: destination, encoding: .utf8), "preserve me")
-        XCTAssertTrue(scene.documentSnapshot.isUntitled)
+        XCTAssertFalse(FileManager.default.fileExists(atPath: destination.path))
         XCTAssertEqual(scene.bufferSnapshot.text, "")
+        XCTAssertTrue(scene.activateDocumentSheet(oldSheet))
+        XCTAssertEqual(scene.bufferSnapshot.text, "preserve me")
+        XCTAssertTrue(scene.documentSnapshot.isDirty)
     }
 
     func testDirtyUntitledNewFileStopsWhenSaveAsIsUnavailable() {
         let dialogs = LunaScriptedDialogService(unsavedDecisions: [.save])
         var scene = MothApplicationShellScene(initialText: "", dialogService: dialogs)
         type("must remain", into: &scene)
-        let id = scene.documentSnapshot.id
+        let oldSheet = try! XCTUnwrap(scene.activeDocumentSheetID)
 
         let result = scene.executeCommand(MothCommandID.newFile)
 
-        XCTAssertFalse(result.didHandle)
-        XCTAssertEqual(scene.documentSnapshot.id, id)
+        XCTAssertTrue(result.didHandle)
+        XCTAssertEqual(scene.documentSheetCount, 2)
+        XCTAssertTrue(scene.activateDocumentSheet(oldSheet))
         XCTAssertEqual(scene.bufferSnapshot.text, "must remain")
         XCTAssertTrue(scene.documentSnapshot.isDirty)
     }

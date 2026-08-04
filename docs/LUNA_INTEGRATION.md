@@ -194,3 +194,15 @@ presentation ownership. Moth adopts the exact Luna commit, removes linear LRU
 maintenance from its shaped-layout hit path, and validates 116 tests plus native
 interaction. The next compatibility decision is made by the paired audit; M3A is
 not started automatically.
+
+## Moth-first Luna support policy {#MOTH_FIRST_LUNA_SUPPORT_POLICY}
+
+Normal iterations begin with a Moth product requirement. Existing Luna APIs are
+consumed first. Luna is modified only for a confirmed reusable component gap,
+framework bug, platform-boundary defect, accessibility problem, or measured
+Luna-owned performance regression. Supporting Luna changes remain product-neutral
+and are committed before Moth records the new submodule gitlink.
+
+M3A uses the existing `LunaShellTab`, `LunaTabStripState`, `LunaEditorShellLayout`,
+overflow, hit-testing, close-target, sidebar-row, and accessibility mechanics
+without moving Moth document policy into Luna.

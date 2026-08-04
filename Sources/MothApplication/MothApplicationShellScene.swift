@@ -38,6 +38,7 @@ public struct MothApplicationShellScene {
     public private(set) var hostInputStats: LunaInputCoalescingStats
     public private(set) var latestFrameInvalidations: LunaFrameInvalidationSet
     public private(set) var latestFrameRenderReport: LunaFrameRenderReport?
+    public private(set) var documentSheets = MothDocumentSheetCollection()
 
     private var documentController: MothDocumentController<MothLocalDocumentFileAccess>
     private var dialogService: any LunaDialogService
@@ -49,6 +50,14 @@ public struct MothApplicationShellScene {
     private var commandRuntime: LunaCommandRuntime<MothApplicationShellScene>
     private var menuBarState: LunaMenuBarState
     private var commandPaletteState: LunaQuickPanelState?
+    private var documentShellState = LunaEditorShellState(
+        isSidebarVisible: false,
+        sidebarWidth: 0
+    )
+    private var openFilesShellState = LunaEditorShellState(
+        isSidebarVisible: true,
+        sidebarWidth: 236
+    )
     private var pendingFrameRenderReport: LunaFrameRenderReport?
     private var staticFrameCache: MothApplicationStaticFrameCache?
     private var paneGeometryGeneration: UInt64
@@ -134,6 +143,14 @@ public struct MothApplicationShellScene {
             viewport: MothEditorViewportState(firstVisibleLine: 2)
         )
         synchronizeViewsAfterDocumentInstall()
+        let initialSheetID = documentSheets.installInitial(
+            document: self.document,
+            primaryView: primaryView,
+            secondaryView: secondaryView
+        )
+        documentShellState.tabStrip.activeTabID = LunaShellTabID(
+            rawValue: initialSheetID.rawValue
+        )
     }
 
     public var buffer: MothInMemorySourceBuffer { document.buffer }
@@ -191,6 +208,11 @@ public struct MothApplicationShellScene {
     public var isMenuOpen: Bool { menuBarState.isOpen }
     public var isCommandPaletteOpen: Bool { commandPaletteState != nil }
     public var commandPaletteQuery: String? { commandPaletteState?.query }
+    public var activeDocumentSheetID: MothDocumentSheetID? {
+        documentSheets.activeSheetID
+    }
+    public var documentSheetCount: Int { documentSheets.count }
+    public var documentSheetIDs: [MothDocumentSheetID] { documentSheets.ids }
 
     public func commandAvailability(
         for command: LunaCommandID,
@@ -219,14 +241,29 @@ public struct MothApplicationShellScene {
     }
 
     public mutating func openDocument(at url: URL) throws {
-        document.history.breakCoalescing()
-        install(document: try documentController.open(url: url))
-        statusMessage = "Opened \(document.snapshot().displayPath)"
+        let canonicalURL = canonicalFileURL(url)
+        captureActiveDocumentSheet()
+        if let existing = documentSheets.sheets.first(where: { sheet in
+            guard let fileURL = sheet.document.snapshot().fileURL else {
+                return false
+            }
+            return canonicalFileURL(fileURL) == canonicalURL
+        }) {
+            _ = loadDocumentSheet(existing.id)
+            statusMessage = "Already open: \(document.snapshot().displayPath)"
+            return
+        }
+
+        let opened = try documentController.open(url: canonicalURL)
+        _ = appendDocumentSheet(opened)
+        statusMessage = "Opened \(document.snapshot().displayPath) in a new tab"
     }
 
     @discardableResult
     public mutating func saveDocument() throws -> MothDocumentSnapshot {
         let saved = try documentController.save(document)
+        captureActiveDocumentSheet()
+        synchronizeDocumentTabState()
         statusMessage = "Saved \(saved.displayPath) — Undo history preserved"
         return saved
     }
@@ -241,6 +278,8 @@ public struct MothApplicationShellScene {
             to: url,
             allowsOverwrite: allowsOverwrite
         )
+        captureActiveDocumentSheet()
+        synchronizeDocumentTabState()
         statusMessage = "Saved \(saved.displayPath) — Undo history preserved"
         return saved
     }
@@ -250,8 +289,20 @@ public struct MothApplicationShellScene {
     }
 
     public mutating func requestApplicationTermination() -> Bool {
-        document.history.breakCoalescing()
-        return prepareToReplaceOrCloseCurrentDocument(source: "window.close")
+        captureActiveDocumentSheet()
+        let originalID = documentSheets.activeSheetID
+        for id in documentSheets.ids {
+            guard loadDocumentSheet(id) else { continue }
+            document.history.breakCoalescing()
+            if !prepareToReplaceOrCloseCurrentDocument(source: "window.close") {
+                return false
+            }
+            captureActiveDocumentSheet()
+        }
+        if let originalID, documentSheets.sheet(with: originalID) != nil {
+            _ = loadDocumentSheet(originalID)
+        }
+        return true
     }
 
     @discardableResult
@@ -794,6 +845,12 @@ public struct MothApplicationShellScene {
         if handleMenuPointer(event) {
             return LunaFrameInvalidationSet(.input)
         }
+        if handleDocumentTabsPointer(event) {
+            return LunaFrameInvalidationSet(.input)
+        }
+        if handleOpenFilesPointer(event) {
+            return LunaFrameInvalidationSet(.input)
+        }
 
         let snapshot = makePaneInteractionSnapshot()
         let pointTarget = interactionSurface(in: snapshot, at: event.location)
@@ -1080,6 +1137,365 @@ public struct MothApplicationShellScene {
         paneViewGeneration &+= 1
     }
 
+
+    // MARK: - M3A document sheets and real tabs
+
+    private func lunaTabID(for sheetID: MothDocumentSheetID) -> LunaShellTabID {
+        LunaShellTabID(rawValue: sheetID.rawValue)
+    }
+
+    private func sheetID(for tabID: LunaShellTabID) -> MothDocumentSheetID {
+        MothDocumentSheetID(rawValue: tabID.rawValue)
+    }
+
+    private func canonicalFileURL(_ url: URL) -> URL {
+        url.standardizedFileURL.resolvingSymlinksInPath()
+    }
+
+    private func documentShellTabs() -> [LunaShellTab] {
+        documentSheets.sheets.map { sheet in
+            let liveDocument = sheet.id == documentSheets.activeSheetID
+                ? document
+                : sheet.document
+            let snapshot = liveDocument.snapshot()
+            return LunaShellTab(
+                id: lunaTabID(for: sheet.id),
+                title: snapshot.displayName,
+                detail: snapshot.fileURL?.path,
+                isDirty: snapshot.isDirty,
+                isPinned: false,
+                isClosable: true,
+                accessibilityLabel: snapshot.fileURL?.path ?? snapshot.displayName
+            )
+        }
+    }
+
+    private func documentTabShell() -> LunaEditorShell {
+        let tabs = documentShellTabs()
+        var state = documentShellState
+        state.tabStrip.activeTabID = documentSheets.activeSheetID.map {
+            lunaTabID(for: $0)
+        }
+        state.normalize(tabs: tabs, sidebarItems: [], metrics: documentTabMetrics)
+        return LunaEditorShell(
+            id: LunaNodeID(rawValue: "moth.document-tabs"),
+            bounds: MothApplicationFrameGeometry(
+                framebufferSize: framebufferSize
+            ).documentBarBounds,
+            tabs: tabs,
+            sidebarItems: [],
+            statusSegments: [],
+            state: state,
+            theme: MothApplicationTheme.theme,
+            metrics: documentTabMetrics
+        )
+    }
+
+    private var documentTabMetrics: LunaEditorShellMetrics {
+        LunaEditorShellMetrics(
+            tabStripHeight: 38,
+            statusBarHeight: 1,
+            sidebarMinWidth: 0,
+            sidebarDefaultWidth: 0,
+            sidebarMaxWidth: 0,
+            sidebarHeaderHeight: 0,
+            sidebarRowHeight: 1,
+            sidebarIndentWidth: 0,
+            shellBorderWidth: 0,
+            tabMinWidth: 112,
+            tabMaxWidth: 224,
+            pinnedTabWidth: 44,
+            tabOverflowButtonWidth: 32,
+            tabHorizontalPadding: 10,
+            tabCloseSize: 12,
+            tabDirtySize: 5,
+            statusHorizontalPadding: 0,
+            statusSegmentGap: 0,
+            textScale: 1,
+            glyphMetrics: MothUnicodeTextPainter.editorMetrics.glyphMetrics
+        )
+    }
+
+    private func openFilesSidebarItems() -> [LunaSidebarItem] {
+        documentSheets.sheets.map { sheet in
+            let liveDocument = sheet.id == documentSheets.activeSheetID
+                ? document
+                : sheet.document
+            let snapshot = liveDocument.snapshot()
+            return LunaSidebarItem(
+                id: LunaSidebarItemID(rawValue: sheet.id.rawValue),
+                title: snapshot.displayName,
+                subtitle: snapshot.fileURL?.path,
+                kind: .file,
+                isEnabled: true,
+                isSelectable: true,
+                accessibilityLabel: snapshot.fileURL?.path ?? snapshot.displayName
+            )
+        }
+    }
+
+    private var openFilesMetrics: LunaEditorShellMetrics {
+        LunaEditorShellMetrics(
+            tabStripHeight: 1,
+            statusBarHeight: 1,
+            sidebarMinWidth: 120,
+            sidebarDefaultWidth: 236,
+            sidebarMaxWidth: 360,
+            sidebarHeaderHeight: 28,
+            sidebarRowHeight: 24,
+            sidebarIndentWidth: 0,
+            shellBorderWidth: 0,
+            tabMinWidth: 1,
+            tabMaxWidth: 1,
+            pinnedTabWidth: 1,
+            tabOverflowButtonWidth: 1,
+            tabHorizontalPadding: 0,
+            tabCloseSize: 0,
+            tabDirtySize: 5,
+            statusHorizontalPadding: 0,
+            statusSegmentGap: 0,
+            textScale: 1,
+            glyphMetrics: MothUnicodeTextPainter.editorMetrics.glyphMetrics
+        )
+    }
+
+    private func openFilesShell() -> LunaEditorShell {
+        let items = openFilesSidebarItems()
+        var state = openFilesShellState
+        state.sidebar.selectedItemID = documentSheets.activeSheetID.map {
+            LunaSidebarItemID(rawValue: $0.rawValue)
+        }
+        state.normalize(tabs: [], sidebarItems: items, metrics: openFilesMetrics)
+        return LunaEditorShell(
+            id: LunaNodeID(rawValue: "moth.open-files"),
+            bounds: MothApplicationFrameGeometry(
+                framebufferSize: framebufferSize
+            ).sidebarBounds,
+            tabs: [],
+            sidebarTitle: "OPEN FILES",
+            sidebarItems: items,
+            statusSegments: [],
+            state: state,
+            theme: MothApplicationTheme.theme,
+            metrics: openFilesMetrics
+        )
+    }
+
+    func documentTabLayout() -> LunaEditorShellLayout {
+        documentTabShell().layout()
+    }
+
+    func openFilesLayout() -> LunaEditorShellLayout {
+        openFilesShell().layout()
+    }
+
+    private mutating func synchronizeDocumentTabState() {
+        let tabs = documentShellTabs()
+        documentShellState.tabStrip.activeTabID = documentSheets.activeSheetID.map {
+            lunaTabID(for: $0)
+        }
+        documentShellState.normalize(
+            tabs: tabs,
+            sidebarItems: [],
+            metrics: documentTabMetrics
+        )
+        let openItems = openFilesSidebarItems()
+        openFilesShellState.sidebar.selectedItemID = documentSheets.activeSheetID.map {
+            LunaSidebarItemID(rawValue: $0.rawValue)
+        }
+        openFilesShellState.normalize(
+            tabs: [],
+            sidebarItems: openItems,
+            metrics: openFilesMetrics
+        )
+    }
+
+    private mutating func captureActiveDocumentSheet() {
+        guard let id = documentSheets.activeSheetID else { return }
+        _ = documentSheets.update(
+            id: id,
+            document: document,
+            primaryView: primaryView,
+            secondaryView: secondaryView
+        )
+    }
+
+    @discardableResult
+    private mutating func appendDocumentSheet(
+        _ newDocument: MothFileDocument
+    ) -> MothDocumentSheetID {
+        captureActiveDocumentSheet()
+        install(document: newDocument)
+        let id = documentSheets.append(
+            document: document,
+            primaryView: primaryView,
+            secondaryView: secondaryView
+        )
+        documentShellState.tabStrip.activeTabID = lunaTabID(for: id)
+        synchronizeDocumentTabState()
+        return id
+    }
+
+    @discardableResult
+    public mutating func activateDocumentSheet(
+        _ id: MothDocumentSheetID
+    ) -> Bool {
+        guard documentSheets.sheet(with: id) != nil else { return false }
+        if documentSheets.activeSheetID == id { return true }
+        captureActiveDocumentSheet()
+        return loadDocumentSheet(id)
+    }
+
+    @discardableResult
+    private mutating func loadDocumentSheet(
+        _ id: MothDocumentSheetID
+    ) -> Bool {
+        guard let sheet = documentSheets.sheet(with: id) else { return false }
+        document = sheet.document
+        primaryView = sheet.primaryView
+        secondaryView = sheet.secondaryView
+        _ = documentSheets.activate(id)
+        documentShellState.tabStrip.activeTabID = lunaTabID(for: id)
+        paneViewGeneration &+= 1
+        paneInteractionSnapshotStore.removeAll()
+        staticFrameCache = nil
+        textSelectionInteractionState.cancel()
+        scrollbarInteractionState.cancel()
+        paneInteractionState.cancelDrag()
+        currentCursorIntent = .arrow
+        synchronizeDocumentTabState()
+        statusMessage = "Active tab: \(document.snapshot().displayName)"
+        return true
+    }
+
+    @discardableResult
+    public mutating func closeActiveDocumentSheet() -> Bool {
+        guard let id = documentSheets.activeSheetID else { return false }
+        return closeDocumentSheet(id)
+    }
+
+    @discardableResult
+    public mutating func closeDocumentSheet(
+        _ id: MothDocumentSheetID
+    ) -> Bool {
+        guard documentSheets.sheet(with: id) != nil else { return false }
+        let originalID = documentSheets.activeSheetID
+        if originalID != id {
+            captureActiveDocumentSheet()
+            guard loadDocumentSheet(id) else { return false }
+        }
+
+        document.history.breakCoalescing()
+        guard prepareToReplaceOrCloseCurrentDocument(source: "moth.tab.close") else {
+            if let originalID, originalID != id {
+                _ = loadDocumentSheet(originalID)
+            }
+            return false
+        }
+
+        captureActiveDocumentSheet()
+        let closingName = document.snapshot().displayName
+        let closingDocumentID = document.snapshot().id.description
+        guard let removal = documentSheets.remove(id) else { return false }
+        viewportPresentationStore.invalidate(documentID: closingDocumentID)
+
+        let preferredID: MothDocumentSheetID?
+        if let originalID,
+           originalID != id,
+           documentSheets.sheet(with: originalID) != nil {
+            preferredID = originalID
+        } else {
+            preferredID = removal.nextActiveID
+        }
+
+        if let preferredID {
+            _ = loadDocumentSheet(preferredID)
+        } else {
+            install(
+                document: MothFileDocument(
+                    untitledText: "",
+                    displayName: "untitled.txt"
+                )
+            )
+            let replacementID = documentSheets.append(
+                document: document,
+                primaryView: primaryView,
+                secondaryView: secondaryView
+            )
+            documentShellState.tabStrip.activeTabID = lunaTabID(
+                for: replacementID
+            )
+            synchronizeDocumentTabState()
+        }
+        statusMessage = "Closed \(closingName)"
+        return true
+    }
+
+    @discardableResult
+    private mutating func selectAdjacentDocumentSheet(
+        delta: Int
+    ) -> Bool {
+        let tabs = documentShellTabs()
+        guard !tabs.isEmpty else { return false }
+        var strip = documentShellState.tabStrip
+        let selected = delta < 0
+            ? strip.selectPreviousTab(in: tabs)
+            : strip.selectNextTab(in: tabs)
+        documentShellState.tabStrip = strip
+        guard let selected else { return false }
+        return activateDocumentSheet(sheetID(for: selected))
+    }
+
+    @discardableResult
+    private mutating func selectDocumentSheet(at index: Int) -> Bool {
+        guard documentSheets.sheets.indices.contains(index) else { return false }
+        return activateDocumentSheet(documentSheets.sheets[index].id)
+    }
+
+    private mutating func handleDocumentTabsPointer(
+        _ event: LunaPointerEvent
+    ) -> Bool {
+        let shell = documentTabShell()
+        let layout = shell.layout()
+        var state = documentShellState
+        let result = shell.handlePointerEvent(event, state: &state)
+        documentShellState = state
+        guard result.didConsumeEvent else { return false }
+        currentCursorIntent = .arrow
+
+        if let selected = result.selectedTabID {
+            _ = activateDocumentSheet(sheetID(for: selected))
+        }
+        if let closed = result.closedTabID {
+            _ = closeDocumentSheet(sheetID(for: closed))
+        }
+        if result.didToggleTabOverflow {
+            if let hidden = layout.hiddenTabIDs.first {
+                _ = activateDocumentSheet(sheetID(for: hidden))
+                statusMessage = "Selected hidden tab from overflow"
+            }
+            documentShellState.tabStrip.isOverflowPresented = false
+        }
+        return true
+    }
+
+    private mutating func handleOpenFilesPointer(
+        _ event: LunaPointerEvent
+    ) -> Bool {
+        let shell = openFilesShell()
+        var state = openFilesShellState
+        let result = shell.handlePointerEvent(event, state: &state)
+        openFilesShellState = state
+        guard result.didConsumeEvent else { return false }
+        currentCursorIntent = .arrow
+        if let selected = result.selectedSidebarItemID {
+            _ = activateDocumentSheet(
+                MothDocumentSheetID(rawValue: selected.rawValue)
+            )
+        }
+        return true
+    }
+
     // MARK: - Command surfaces
 
     private func menuBar() -> LunaMenuBar {
@@ -1122,6 +1538,8 @@ public struct MothApplicationShellScene {
                     .separator(id: "file.separator.save"),
                     menuItem(for: MothCommandID.save),
                     menuItem(for: MothCommandID.saveAs),
+                    .separator(id: "file.separator.close"),
+                    menuItem(for: MothCommandID.closeTab),
                 ]
             ),
             LunaMenuDefinition(
@@ -1146,6 +1564,9 @@ public struct MothApplicationShellScene {
                 id: "view",
                 title: "View",
                 items: [
+                    menuItem(for: MothCommandID.nextTab),
+                    menuItem(for: MothCommandID.previousTab),
+                    .separator(id: "view.separator.panes"),
                     menuItem(for: MothCommandID.nextPane),
                     menuItem(for: MothCommandID.previousPane),
                 ]
@@ -1156,7 +1577,7 @@ public struct MothApplicationShellScene {
                 items: [
                     LunaMenuItem(
                         id: "goto.pending",
-                        title: "Goto commands arrive with M3",
+                        title: "Goto commands arrive with M4",
                         isEnabled: false
                     ),
                 ]
@@ -1486,11 +1907,22 @@ public struct MothApplicationShellScene {
         let snapshot = document.snapshot()
         let history = document.history.status()
 
+        if let index = MothCommandID.tabIndex(for: command) {
+            return index < documentSheetCount
+                ? .enabled
+                : .disabled("Tab \(index + 1) is not open")
+        }
+
         switch command {
         case MothCommandID.newFile, MothCommandID.openFile,
-             MothCommandID.saveAs, MothCommandID.nextPane,
-             MothCommandID.previousPane, MothCommandID.showCommandPalette:
+             MothCommandID.saveAs, MothCommandID.closeTab,
+             MothCommandID.nextPane, MothCommandID.previousPane,
+             MothCommandID.showCommandPalette:
             return .enabled
+        case MothCommandID.nextTab, MothCommandID.previousTab:
+            return documentSheetCount > 1
+                ? .enabled
+                : .disabled("Only one document tab is open")
         case MothCommandID.save:
             return snapshot.isUntitled || snapshot.isDirty
                 ? .enabled
@@ -1518,10 +1950,16 @@ public struct MothApplicationShellScene {
         textSelectionInteractionState.cancel()
         paneInteractionState.cancelDrag()
 
+        if let index = MothCommandID.tabIndex(for: command) {
+            return selectDocumentSheet(at: index)
+                ? .handled("Active tab: \(index + 1)")
+                : .unhandled("Tab \(index + 1) is not open")
+        }
+
         switch command {
         case MothCommandID.newFile:
             return createNewUntitledDocument()
-                ? .handled("New untitled document")
+                ? .handled("New document tab")
                 : .unhandled(statusMessage)
         case MothCommandID.openFile:
             requestOpenDocument()
@@ -1542,15 +1980,31 @@ public struct MothApplicationShellScene {
             return requestSaveDocumentAs()
                 ? .handled(statusMessage)
                 : .unhandled(statusMessage)
+        case MothCommandID.closeTab:
+            return closeActiveDocumentSheet()
+                ? .handled(statusMessage)
+                : .unhandled(statusMessage)
         case MothCommandID.undo:
-            guard let result = undoDocument() else { return .unhandled(statusMessage) }
+            guard let result = undoDocument() else {
+                return .unhandled(statusMessage)
+            }
             return .handled("Undo: \(result.displayName)")
         case MothCommandID.redo:
-            guard let result = redoDocument() else { return .unhandled(statusMessage) }
+            guard let result = redoDocument() else {
+                return .unhandled(statusMessage)
+            }
             return .handled("Redo: \(result.displayName)")
         case MothCommandID.selectAll:
             selectAllInActiveView()
             return .handled("Selected entire document")
+        case MothCommandID.nextTab:
+            return selectAdjacentDocumentSheet(delta: 1)
+                ? .handled(statusMessage)
+                : .unhandled("No next document tab")
+        case MothCommandID.previousTab:
+            return selectAdjacentDocumentSheet(delta: -1)
+                ? .handled(statusMessage)
+                : .unhandled("No previous document tab")
         case MothCommandID.nextPane:
             _ = paneWorkspace.traverse(.next, layout: paneLayout())
             return .handled("Active pane: \(paneWorkspace.activePaneID.rawValue)")
@@ -1594,14 +2048,16 @@ public struct MothApplicationShellScene {
     }
 
     private mutating func createNewUntitledDocument() -> Bool {
-        guard prepareToReplaceOrCloseCurrentDocument(source: "moth.command.new") else {
-            return false
-        }
-        install(document: MothFileDocument(untitledText: "", displayName: "untitled.txt"))
+        _ = appendDocumentSheet(
+            MothFileDocument(
+                untitledText: "",
+                displayName: "untitled.txt"
+            )
+        )
         menuBarState.close()
         commandPaletteState = nil
         currentCursorIntent = .arrow
-        statusMessage = "New untitled document"
+        statusMessage = "New untitled document tab"
         return true
     }
 
@@ -1792,7 +2248,6 @@ public struct MothApplicationShellScene {
             statusMessage = result.statusMessage ?? "Open cancelled"
             return
         }
-        guard prepareToReplaceOrCloseCurrentDocument(source: "command.open") else { return }
         do {
             try openDocument(at: URL(fileURLWithPath: path))
         } catch {
@@ -1965,28 +2420,91 @@ public struct MothApplicationShellScene {
         framebuffer: inout LunaFramebuffer
     ) {
         let palette = MothApplicationTheme.renderPalette
-        let documentSnapshot = document.snapshot()
-        let titleX: Int
-        if documentSnapshot.isDirty {
-            // Dirty state is explicit geometry rather than a font-dependent
-            // Unicode bullet. This remains visible even if a selected font lacks
-            // a particular symbol glyph.
+        let layout = documentTabLayout()
+        let activeID = documentSheets.activeSheetID.map { lunaTabID(for: $0) }
+        let hoveredID = documentShellState.tabStrip.hoveredTabID
+
+        for frame in layout.tabFrames {
+            let isActive = frame.tab.id == activeID
+            let isHovered = frame.tab.id == hoveredID
+            let fill = isActive
+                ? palette.chromeBackground
+                : (isHovered ? palette.windowBackground : palette.raisedBackground)
+            framebuffer.fillRect(frame.bounds, color: fill)
             framebuffer.fillRect(
-                LunaRectI(x: 18, y: 47, w: 5, h: 5),
-                color: activeAccent
+                LunaRectI(
+                    x: frame.bounds.x + frame.bounds.w - 1,
+                    y: frame.bounds.y + 5,
+                    w: 1,
+                    h: max(1, frame.bounds.h - 10)
+                ),
+                color: palette.separator
             )
-            titleX = 29
-        } else {
-            titleX = 18
+            if isActive {
+                framebuffer.fillRect(
+                    LunaRectI(
+                        x: frame.bounds.x,
+                        y: frame.bounds.y + max(0, frame.bounds.h - 2),
+                        w: frame.bounds.w,
+                        h: 2
+                    ),
+                    color: activeAccent
+                )
+            }
+            if let dirty = frame.dirtyIndicatorBounds {
+                framebuffer.fillRect(dirty, color: activeAccent)
+            }
+            MothUnicodeTextPainter.draw(
+                frame.tab.title,
+                atX: frame.titleBounds.x,
+                y: frame.titleBounds.y,
+                color: palette.text,
+                maximumWidth: frame.titleBounds.w,
+                into: &framebuffer
+            )
+            if let close = frame.closeButtonBounds {
+                let span = min(close.w, close.h)
+                if span > 4 {
+                    for offset in 2..<(span - 2) {
+                        framebuffer.fillRect(
+                            LunaRectI(
+                                x: close.x + offset,
+                                y: close.y + offset,
+                                w: 1,
+                                h: 1
+                            ),
+                            color: palette.text
+                        )
+                        framebuffer.fillRect(
+                            LunaRectI(
+                                x: close.x + span - offset - 1,
+                                y: close.y + offset,
+                                w: 1,
+                                h: 1
+                            ),
+                            color: palette.text
+                        )
+                    }
+                }
+            }
         }
-        MothUnicodeTextPainter.draw(
-            documentSnapshot.displayName,
-            atX: titleX,
-            y: 43,
-            color: palette.text,
-            maximumWidth: max(0, framebuffer.width - titleX - 12),
-            into: &framebuffer
-        )
+
+        if let overflow = layout.tabOverflowButtonBounds {
+            framebuffer.fillRect(
+                overflow,
+                color: documentShellState.tabStrip.isOverflowPresented
+                    ? palette.chromeBackground
+                    : palette.raisedBackground
+            )
+            let y = overflow.y + overflow.h / 2
+            let start = overflow.x + max(2, (overflow.w - 11) / 2)
+            for offset in [0, 4, 8] {
+                framebuffer.fillRect(
+                    LunaRectI(x: start + offset, y: y, w: 3, h: 3),
+                    color: palette.text
+                )
+            }
+        }
     }
 
     private func drawStatusText(
@@ -2164,23 +2682,62 @@ public struct MothApplicationShellScene {
         sidebarWidth: Int
     ) {
         let palette = MothApplicationTheme.renderPalette
-        MothUnicodeTextPainter.draw("OPEN FILES", atX: 16, y: 84, color: palette.mutedText, into: &framebuffer)
-        let snapshot = document.snapshot()
+        let layout = openFilesLayout()
         MothUnicodeTextPainter.draw(
-            snapshot.displayName,
-            atX: 28,
-            y: 106,
-            color: activeAccent,
-            maximumWidth: sidebarWidth - 38,
+            "OPEN FILES",
+            atX: layout.sidebarHeaderBounds.x + 16,
+            y: layout.sidebarHeaderBounds.y + 8,
+            color: palette.mutedText,
+            maximumWidth: max(0, layout.sidebarHeaderBounds.w - 24),
             into: &framebuffer
         )
-        MothUnicodeTextPainter.draw("DOCUMENT", atX: 16, y: 140, color: palette.mutedText, into: &framebuffer)
-        MothUnicodeTextPainter.draw(snapshot.isUntitled ? "UNTITLED" : "FILE-BACKED", atX: 28, y: 162, color: palette.text, into: &framebuffer)
-        MothUnicodeTextPainter.draw(snapshot.encoding.displayName, atX: 40, y: 182, color: palette.mutedText, maximumWidth: sidebarWidth - 50, into: &framebuffer)
-        MothUnicodeTextPainter.draw(snapshot.displayPath, atX: 40, y: 202, color: palette.mutedText, maximumWidth: sidebarWidth - 50, into: &framebuffer)
-        MothUnicodeTextPainter.draw("Ctrl+N New   Ctrl+O Open", atX: 28, y: 234, color: palette.mutedText, maximumWidth: sidebarWidth - 38, into: &framebuffer)
-        MothUnicodeTextPainter.draw("Ctrl+S Save   Ctrl+A Select All", atX: 28, y: 254, color: palette.mutedText, maximumWidth: sidebarWidth - 38, into: &framebuffer)
-        MothUnicodeTextPainter.draw("Ctrl+Shift+P Command Palette", atX: 28, y: 274, color: palette.mutedText, maximumWidth: sidebarWidth - 38, into: &framebuffer)
+
+        let activeID = documentSheets.activeSheetID
+        for row in layout.sidebarRows {
+            let id = MothDocumentSheetID(rawValue: row.item.id.rawValue)
+            let isActive = id == activeID
+            if isActive {
+                framebuffer.fillRect(row.bounds, color: palette.raisedBackground)
+                framebuffer.fillRect(
+                    LunaRectI(x: row.bounds.x, y: row.bounds.y, w: 3, h: row.bounds.h),
+                    color: activeAccent
+                )
+            }
+            let sheet = documentSheets.sheet(with: id)
+            let liveDocument = id == activeID ? document : sheet?.document
+            let isDirty = liveDocument?.snapshot().isDirty == true
+            if isDirty {
+                framebuffer.fillRect(
+                    LunaRectI(
+                        x: row.titleBounds.x,
+                        y: row.bounds.y + max(1, (row.bounds.h - 5) / 2),
+                        w: 5,
+                        h: 5
+                    ),
+                    color: activeAccent
+                )
+            }
+            MothUnicodeTextPainter.draw(
+                row.item.title,
+                atX: row.titleBounds.x + (isDirty ? 10 : 0),
+                y: row.titleBounds.y + 2,
+                color: isActive ? activeAccent : palette.text,
+                maximumWidth: max(0, row.titleBounds.w - (isDirty ? 10 : 0)),
+                into: &framebuffer
+            )
+        }
+
+        let hidden = max(0, documentSheetCount - layout.sidebarRows.count)
+        if hidden > 0 {
+            MothUnicodeTextPainter.draw(
+                "+\(hidden) MORE OPEN",
+                atX: 18,
+                y: max(0, framebuffer.height - 46),
+                color: palette.mutedText,
+                maximumWidth: max(0, sidebarWidth - 28),
+                into: &framebuffer
+            )
+        }
     }
 
     private func drawPaneEditors(
