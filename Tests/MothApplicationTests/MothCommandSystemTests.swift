@@ -15,6 +15,8 @@ final class MothCommandSystemTests: XCTestCase {
 
     func testStableCommandVocabularyHasUniqueNamespacedIdentifiers() {
         XCTAssertEqual(MothCommandID.newFile.rawValue, "moth.file.new")
+        XCTAssertEqual(MothCommandID.copy.rawValue, "moth.edit.copy")
+        XCTAssertEqual(MothCommandID.replaceAll.rawValue, "moth.find.replaceAll")
         XCTAssertEqual(MothCommandID.showCommandPalette.rawValue, "moth.tools.commandPalette")
         XCTAssertEqual(Set(MothCommandID.all).count, MothCommandID.all.count)
         XCTAssertTrue(MothCommandID.all.allSatisfy { $0.rawValue.hasPrefix("moth.") })
@@ -253,7 +255,7 @@ final class MothCommandSystemTests: XCTestCase {
         XCTAssertEqual(scene.bufferSnapshot.text, "Xabc")
     }
 
-    func testDisabledPaletteCommandRemainsVisibleAndDoesNotDismissPalette() {
+    func testPaletteFindCommandDismissesPaletteAndOpensVisiblePanel() {
         var scene = MothApplicationShellScene(initialText: "abc")
         sendShortcut("p", shift: true, to: &scene)
         _ = scene.handleHostEvent(
@@ -265,14 +267,14 @@ final class MothCommandSystemTests: XCTestCase {
             framebufferSize: size
         )
 
-        XCTAssertTrue(scene.isCommandPaletteOpen)
+        XCTAssertFalse(scene.isCommandPaletteOpen)
+        XCTAssertTrue(scene.isFindPanelOpen)
         XCTAssertEqual(scene.lastCommandID, MothCommandID.showFind)
         XCTAssertEqual(scene.lastCommandSource, "palette")
-        XCTAssertTrue(scene.statusMessage.contains("M2.2B2"))
         XCTAssertEqual(scene.bufferSnapshot.text, "abc")
     }
 
-    func testDisabledPalettePointerActivationRetainsPaletteAndReportsReason() {
+    func testPalettePointerFindActivationOpensVisiblePanel() {
         var scene = MothApplicationShellScene(initialText: "abc")
         sendShortcut("p", shift: true, to: &scene)
         _ = scene.handleHostEvent(
@@ -291,14 +293,14 @@ final class MothCommandSystemTests: XCTestCase {
             framebufferSize: size
         )
 
-        XCTAssertTrue(scene.isCommandPaletteOpen)
+        XCTAssertFalse(scene.isCommandPaletteOpen)
+        XCTAssertTrue(scene.isFindPanelOpen)
         XCTAssertEqual(scene.lastCommandID, MothCommandID.showFind)
         XCTAssertEqual(scene.lastCommandSource, "palette")
-        XCTAssertTrue(scene.statusMessage.contains("M2.2B2"))
         XCTAssertEqual(scene.bufferSnapshot.text, "abc")
     }
 
-    func testDisabledFindShortcutIsConsumedAndExplainsDeferredScope() {
+    func testFindShortcutOpensPanelAndSuppressesShortcutText() {
         var scene = MothApplicationShellScene(initialText: "abc")
         sendShortcut("f", to: &scene)
         _ = scene.handleHostEvent(
@@ -307,9 +309,9 @@ final class MothCommandSystemTests: XCTestCase {
         )
 
         XCTAssertEqual(scene.bufferSnapshot.text, "abc")
+        XCTAssertTrue(scene.isFindPanelOpen)
         XCTAssertEqual(scene.lastCommandID, MothCommandID.showFind)
         XCTAssertEqual(scene.lastCommandSource, "keyboard")
-        XCTAssertTrue(scene.statusMessage.contains("M2.2B2"))
     }
 
     func testUnknownCommandIsRejectedWithoutMutation() {

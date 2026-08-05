@@ -3,8 +3,9 @@
 // MothCommandSystem.swift
 //
 // Moth-owned command vocabulary and product policy built on Luna's reusable
-// command runtime. M3A assigns document-tab workflow to Moth while Luna remains
-// responsible for generic key matching and command-surface projection.
+// command runtime. M2.2B2 converges native clipboard commands and visible,
+// sheet-aware Find/Replace while Luna remains responsible for reusable command,
+// field, panel, and host boundaries.
 
 import LunaCommands
 
@@ -17,9 +18,16 @@ public enum MothCommandID {
 
     public static let undo: LunaCommandID = "moth.edit.undo"
     public static let redo: LunaCommandID = "moth.edit.redo"
+    public static let cut: LunaCommandID = "moth.edit.cut"
+    public static let copy: LunaCommandID = "moth.edit.copy"
+    public static let paste: LunaCommandID = "moth.edit.paste"
     public static let selectAll: LunaCommandID = "moth.edit.selectAll"
 
     public static let showFind: LunaCommandID = "moth.find.show"
+    public static let findNext: LunaCommandID = "moth.find.next"
+    public static let findPrevious: LunaCommandID = "moth.find.previous"
+    public static let replaceCurrent: LunaCommandID = "moth.find.replace"
+    public static let replaceAll: LunaCommandID = "moth.find.replaceAll"
 
     public static let nextTab: LunaCommandID = "moth.view.nextTab"
     public static let previousTab: LunaCommandID = "moth.view.previousTab"
@@ -44,8 +52,15 @@ public enum MothCommandID {
         closeTab,
         undo,
         redo,
+        cut,
+        copy,
+        paste,
         selectAll,
         showFind,
+        findNext,
+        findPrevious,
+        replaceCurrent,
+        replaceAll,
         nextTab,
         previousTab,
         nextPane,
@@ -168,6 +183,36 @@ enum MothCommandSystem {
         )
         runtime.register(
             descriptor(
+                MothCommandID.cut,
+                "Cut",
+                key: LunaKeyEquivalent("X", modifiers: [.primary]),
+                menu: ["Edit"]
+            ),
+            handler: handler,
+            availability: availability
+        )
+        runtime.register(
+            descriptor(
+                MothCommandID.copy,
+                "Copy",
+                key: LunaKeyEquivalent("C", modifiers: [.primary]),
+                menu: ["Edit"]
+            ),
+            handler: handler,
+            availability: availability
+        )
+        runtime.register(
+            descriptor(
+                MothCommandID.paste,
+                "Paste",
+                key: LunaKeyEquivalent("V", modifiers: [.primary]),
+                menu: ["Edit"]
+            ),
+            handler: handler,
+            availability: availability
+        )
+        runtime.register(
+            descriptor(
                 MothCommandID.selectAll,
                 "Select All",
                 key: LunaKeyEquivalent("A", modifiers: [.primary]),
@@ -180,8 +225,60 @@ enum MothCommandSystem {
         runtime.register(
             descriptor(
                 MothCommandID.showFind,
-                "Find…",
+                "Find / Replace…",
                 key: LunaKeyEquivalent("F", modifiers: [.primary]),
+                menu: ["Find"]
+            ),
+            handler: handler,
+            availability: availability
+        )
+        runtime.register(
+            descriptor(
+                MothCommandID.findNext,
+                "Find Next",
+                key: LunaKeyEquivalent("G", modifiers: [.primary]),
+                menu: ["Find"]
+            ),
+            handler: handler,
+            availability: availability
+        )
+        runtime.registerKeyBinding(
+            LunaKeyBinding(
+                command: MothCommandID.findNext,
+                keyEquivalent: LunaKeyEquivalent("F3"),
+                priority: 10
+            )
+        )
+        runtime.register(
+            descriptor(
+                MothCommandID.findPrevious,
+                "Find Previous",
+                key: LunaKeyEquivalent("G", modifiers: [.primary, .shift]),
+                menu: ["Find"]
+            ),
+            handler: handler,
+            availability: availability
+        )
+        runtime.registerKeyBinding(
+            LunaKeyBinding(
+                command: MothCommandID.findPrevious,
+                keyEquivalent: LunaKeyEquivalent("F3", modifiers: [.shift]),
+                priority: 10
+            )
+        )
+        runtime.register(
+            descriptor(
+                MothCommandID.replaceCurrent,
+                "Replace",
+                menu: ["Find"]
+            ),
+            handler: handler,
+            availability: availability
+        )
+        runtime.register(
+            descriptor(
+                MothCommandID.replaceAll,
+                "Replace All",
                 menu: ["Find"]
             ),
             handler: handler,

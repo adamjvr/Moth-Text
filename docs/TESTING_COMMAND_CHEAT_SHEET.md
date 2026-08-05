@@ -61,9 +61,14 @@ Document tabs and editor panes are separate:
 |---|---:|---|
 | Undo | `Ctrl+Z` | Undo in the active document only |
 | Redo | `Ctrl+Shift+Z` or `Ctrl+Y` | Redo in the active document only |
+| Cut | `Ctrl+X` | Copy then remove the focused selection as one Undo group |
+| Copy | `Ctrl+C` | Copy the focused editor or Find-field selection |
+| Paste | `Ctrl+V` | Paste system plain text into the focused surface as one editor Undo group |
 | Select All | `Ctrl+A` | Select the complete active document |
 | Command Palette | `Ctrl+Shift+P` | Open Moth's searchable command surface |
-| Find | `Ctrl+F` | Reserved for M2.2B2 Visible Find/Replace |
+| Find / Replace | `Ctrl+F` | Open the sheet-aware Find/Replace panel |
+| Find Next | `Enter` in panel, `Ctrl+G`, or `F3` | Select and reveal the next match |
+| Find Previous | `Shift+Enter` in panel, `Ctrl+Shift+G`, or `Shift+F3` | Select and reveal the previous match |
 
 ## Pointer and Workspace Checks
 
@@ -235,3 +240,17 @@ git -C "$HOME/GitHub/Luna-UI" status --short
 ```
 
 Never use `git reset --hard` or `git clean` during an unfinished paired iteration.
+
+## M2.2B2 Clipboard and Find/Replace Acceptance
+
+1. Copy multiline Unicode text from Moth into another desktop application.
+2. Copy external text and paste it into both Moth editor panes.
+3. Confirm Cut and Paste each reverse with exactly one Undo.
+4. Confirm a failed clipboard write leaves the selected document text intact.
+5. Open several tabs and verify clipboard edits affect only the active sheet.
+6. Open Find/Replace with `Ctrl+F`; test field caret movement and Shift-selection.
+7. Copy, Cut, Paste, and Select All inside both panel fields without mutating the editor.
+8. Test Next, Previous, Replace, and Replace All; Replace All must undo once.
+9. Enable regex, enter an invalid expression, and confirm visible non-destructive feedback.
+10. Switch tabs while the panel is visible and confirm independent queries/options restore.
+11. Repeat ordinary, 5K, and 50K launch checks and confirm the custom Moth icon.

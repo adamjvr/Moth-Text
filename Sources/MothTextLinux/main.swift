@@ -136,7 +136,8 @@ let scripted = LunaScriptedDialogService(
     scriptedSelectionsAllowOverwrite: true
 )
 var shell = MothApplicationShellScene(
-    dialogService: MothLinuxDialogService(scripted: scripted)
+    dialogService: MothLinuxDialogService(scripted: scripted),
+    clipboardService: LunaSDLClipboardService()
 )
 
 if let openPath = options.openPath {
@@ -176,7 +177,9 @@ let result = runLunaSDLApplication(
     configuration: LunaSDLApplicationConfiguration(
         title: "Moth Text",
         initialWidth: 1100,
-        initialHeight: 720
+        initialHeight: 720,
+        applicationID: "io.github.adamjvr.MothText",
+        windowClass: "MothTextLinux"
     ),
     scene: &scene
 )

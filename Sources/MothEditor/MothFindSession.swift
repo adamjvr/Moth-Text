@@ -46,16 +46,19 @@ public struct MothFindResultSet: Hashable, Sendable {
     public var bufferRevision: MothBufferRevision
     public var matches: [MothFindMatch]
     public var selectedMatchIndex: Int?
+    public var errorMessage: String?
 
     public init(
         query: MothFindQuery,
         bufferRevision: MothBufferRevision,
         matches: [MothFindMatch],
-        selectedMatchIndex: Int? = nil
+        selectedMatchIndex: Int? = nil,
+        errorMessage: String? = nil
     ) {
         self.query = query
         self.bufferRevision = bufferRevision
         self.matches = matches
+        self.errorMessage = errorMessage
         if let selectedMatchIndex, matches.indices.contains(selectedMatchIndex) {
             self.selectedMatchIndex = selectedMatchIndex
         } else {
@@ -90,12 +93,21 @@ public struct MothFindSession: Sendable {
     @discardableResult
     public mutating func update(query: MothFindQuery) -> MothFindResultSet {
         let snapshot = buffer.snapshot()
-        let matches = Self.scan(snapshot: snapshot, query: query)
-        results = MothFindResultSet(
-            query: query,
-            bufferRevision: snapshot.revision,
-            matches: matches
-        )
+        do {
+            let matches = try Self.scan(snapshot: snapshot, query: query)
+            results = MothFindResultSet(
+                query: query,
+                bufferRevision: snapshot.revision,
+                matches: matches
+            )
+        } catch {
+            results = MothFindResultSet(
+                query: query,
+                bufferRevision: snapshot.revision,
+                matches: [],
+                errorMessage: "Invalid regular expression: \(error.localizedDescription)"
+            )
+        }
         return results
     }
 
@@ -140,10 +152,6 @@ public struct MothFindSession: Sendable {
         return matches.count
     }
 
-
-    /// History-aware single replacement used by production document editing.
-    /// The legacy overload above remains for low-level callers and compatibility
-    /// tests, but application code should supply its document history and views.
     @discardableResult
     public mutating func replaceCurrent(
         with replacement: String,
@@ -167,8 +175,6 @@ public struct MothFindSession: Sendable {
         return result
     }
 
-    /// History-aware Replace All. Every primitive replacement is retained in one
-    /// atomic group so one Undo restores the complete pre-command document.
     @discardableResult
     public mutating func replaceAll(
         with replacement: String,
@@ -196,10 +202,13 @@ public struct MothFindSession: Sendable {
         }
     }
 
-    private static func scan(snapshot: MothSourceBufferSnapshot, query: MothFindQuery) -> [MothFindMatch] {
+    private static func scan(
+        snapshot: MothSourceBufferSnapshot,
+        query: MothFindQuery
+    ) throws -> [MothFindMatch] {
         guard !query.isEmpty else { return [] }
         return query.options.usesRegularExpression
-            ? regexMatches(in: snapshot.text, query: query)
+            ? try regexMatches(in: snapshot.text, query: query)
             : literalMatches(in: snapshot.text, query: query)
     }
 
@@ -219,14 +228,24 @@ public struct MothFindSession: Sendable {
         return matches
     }
 
-    private static func regexMatches(in text: String, query: MothFindQuery) -> [MothFindMatch] {
+    private static func regexMatches(
+        in text: String,
+        query: MothFindQuery
+    ) throws -> [MothFindMatch] {
         let options: NSRegularExpression.Options = query.options.isCaseSensitive ? [] : [.caseInsensitive]
-        guard let regex = try? NSRegularExpression(pattern: query.text, options: options) else { return [] }
+        let regex = try NSRegularExpression(pattern: query.text, options: options)
         let fullRange = NSRange(text.startIndex..<text.endIndex, in: text)
         var matches: [MothFindMatch] = []
         regex.enumerateMatches(in: text, range: fullRange) { result, _, _ in
-            guard let result, result.range.length > 0, let range = Range(result.range, in: text) else { return }
-            guard acceptsWordBoundary(in: text, range: range, wholeWord: query.options.matchesWholeWord) else { return }
+            guard let result,
+                  result.range.length > 0,
+                  let range = Range(result.range, in: text)
+            else { return }
+            guard acceptsWordBoundary(
+                in: text,
+                range: range,
+                wholeWord: query.options.matchesWholeWord
+            ) else { return }
             matches.append(makeMatch(in: text, range: range))
         }
         return matches

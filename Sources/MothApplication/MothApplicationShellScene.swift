@@ -42,6 +42,11 @@ public struct MothApplicationShellScene {
 
     private var documentController: MothDocumentController<MothLocalDocumentFileAccess>
     private var dialogService: any LunaDialogService
+    private var clipboardService: any LunaClipboardService
+    private var findPanelState: LunaFindPanelState
+    private var isFindPanelPresented: Bool
+    private var findPanelReturnPaneID: LunaPaneID
+    private var findPanelPointerField: LunaFindPanelField?
     private var suppressedTextInput: String?
     private var paneInteractionState: LunaPaneContainerInteractionState
     private var textSelectionInteractionState: LunaTextSelectionInteractionState
@@ -69,7 +74,8 @@ public struct MothApplicationShellScene {
     public init(
         initialSize: LunaSizeI = LunaSizeI(width: 1100, height: 720),
         initialText: String = Self.demoText,
-        dialogService: any LunaDialogService = LunaNoOpDialogService()
+        dialogService: any LunaDialogService = LunaNoOpDialogService(),
+        clipboardService: any LunaClipboardService = LunaUnavailableClipboardService()
     ) {
         self.init(
             initialSize: initialSize,
@@ -77,14 +83,16 @@ public struct MothApplicationShellScene {
                 untitledText: initialText,
                 displayName: "untitled.txt"
             ),
-            dialogService: dialogService
+            dialogService: dialogService,
+            clipboardService: clipboardService
         )
     }
 
     public init(
         initialSize: LunaSizeI = LunaSizeI(width: 1100, height: 720),
         document: MothFileDocument,
-        dialogService: any LunaDialogService = LunaNoOpDialogService()
+        dialogService: any LunaDialogService = LunaNoOpDialogService(),
+        clipboardService: any LunaClipboardService = LunaUnavailableClipboardService()
     ) {
         self.framebufferSize = initialSize
         self.pointerAccentIsActive = false
@@ -92,6 +100,11 @@ public struct MothApplicationShellScene {
         self.document = document
         self.documentController = MothDocumentController(fileAccess: MothLocalDocumentFileAccess())
         self.dialogService = dialogService
+        self.clipboardService = clipboardService
+        self.findPanelState = LunaFindPanelState()
+        self.isFindPanelPresented = false
+        self.findPanelReturnPaneID = Self.primaryPaneID
+        self.findPanelPointerField = nil
         self.suppressedTextInput = nil
         self.paneInteractionState = LunaPaneContainerInteractionState()
         self.textSelectionInteractionState = LunaTextSelectionInteractionState()
@@ -146,7 +159,8 @@ public struct MothApplicationShellScene {
         let initialSheetID = documentSheets.installInitial(
             document: self.document,
             primaryView: primaryView,
-            secondaryView: secondaryView
+            secondaryView: secondaryView,
+            findPanelState: findPanelState
         )
         documentShellState.tabStrip.activeTabID = LunaShellTabID(
             rawValue: initialSheetID.rawValue
@@ -208,6 +222,9 @@ public struct MothApplicationShellScene {
     public var isMenuOpen: Bool { menuBarState.isOpen }
     public var isCommandPaletteOpen: Bool { commandPaletteState != nil }
     public var commandPaletteQuery: String? { commandPaletteState?.query }
+    public var isFindPanelOpen: Bool { isFindPanelPresented }
+    public var findPanelSnapshot: LunaFindPanelState { findPanelState }
+    public var clipboardIsAvailable: Bool { clipboardService.isAvailable }
     public var activeDocumentSheetID: MothDocumentSheetID? {
         documentSheets.activeSheetID
     }
@@ -316,6 +333,7 @@ public struct MothApplicationShellScene {
             return nil
         }
         restoreSceneViews(from: views)
+        refreshFindPanelAfterDocumentMutation()
         statusMessage = "Undo: \(result.displayName)"
         ensureActiveCaretVisible()
         return result
@@ -332,6 +350,7 @@ public struct MothApplicationShellScene {
             return nil
         }
         restoreSceneViews(from: views)
+        refreshFindPanelAfterDocumentMutation()
         statusMessage = "Redo: \(result.displayName)"
         ensureActiveCaretVisible()
         return result
@@ -364,6 +383,7 @@ public struct MothApplicationShellScene {
             currentCursorIntent = .arrow
             menuBarState.close()
             commandPaletteState = nil
+            findPanelPointerField = nil
             statusMessage = "Pointer selection, scrollbar, or resize gesture cancelled after capture loss"
             invalidations = LunaFrameInvalidationSet(.input)
 
@@ -396,18 +416,23 @@ public struct MothApplicationShellScene {
                         currentCursorIntent = .arrow
                         invalidations = LunaFrameInvalidationSet(.input)
                     } else {
-                        if let result = performActiveInsert(textInput.text) {
-                            statusMessage = result.displayName
-                        }
-                        ensureActiveCaretVisible()
-                        invalidations = LunaFrameInvalidationSet(.textInput)
+                        invalidations = insertCommittedTextIntoEditor(textInput.text)
+                    }
+                } else if isFindPanelPresented {
+                    let provider = MothLunaFindPanelSession(buffer: buffer)
+                    let result = findPanelState.handleTextInput(
+                        textInput,
+                        provider: provider
+                    )
+                    if result.didConsumeEvent {
+                        updateFindStatus()
+                        currentCursorIntent = .text
+                        invalidations = LunaFrameInvalidationSet(.input)
+                    } else {
+                        invalidations = insertCommittedTextIntoEditor(textInput.text)
                     }
                 } else {
-                    if let result = performActiveInsert(textInput.text) {
-                        statusMessage = result.displayName
-                    }
-                    ensureActiveCaretVisible()
-                    invalidations = LunaFrameInvalidationSet(.textInput)
+                    invalidations = insertCommittedTextIntoEditor(textInput.text)
                 }
             }
         }
@@ -431,7 +456,9 @@ public struct MothApplicationShellScene {
             invalidations: latestFrameInvalidations,
             geometry: geometry,
             hasCompatibleCache: hasCompatibleCache,
-            hasActiveOverlay: menuBarState.isOpen || commandPaletteState != nil
+            hasActiveOverlay: menuBarState.isOpen
+                || commandPaletteState != nil
+                || isFindPanelPresented
         )
 
         if damagePlan.path == .partialDamage,
@@ -539,6 +566,7 @@ public struct MothApplicationShellScene {
         // The restoration cache always represents the overlay-free base frame.
         // Menus and quick panels are transient and must never contaminate it.
         storeStaticFrameCache(from: framebuffer, size: size)
+        drawFindPanel(into: &framebuffer)
         drawMenuSurface(into: &framebuffer)
         drawCommandPalette(into: &framebuffer)
 
@@ -800,7 +828,8 @@ public struct MothApplicationShellScene {
             snapshot: bundle.storageSnapshot,
             presentation: bundle.presentation,
             virtualizationContext: bundle.virtualizationContext,
-            isActive: paneID == paneWorkspace.activePaneID
+            isActive: paneID == paneWorkspace.activePaneID,
+            highlights: findHighlights(for: viewState(for: paneID))
         )
     }
 
@@ -813,6 +842,9 @@ public struct MothApplicationShellScene {
         )? = nil
     ) -> LunaCursorIntent {
         if commandPaletteState != nil || menuBarState.isOpen { return .arrow }
+        if isFindPanelPresented {
+            return findPanel()?.fieldHit(at: point) == nil ? .arrow : .text
+        }
         if scrollbarInteractionState.isDragging { return .arrow }
 
         let snapshot = suppliedSnapshot ?? makePaneInteractionSnapshot()
@@ -843,6 +875,9 @@ public struct MothApplicationShellScene {
             return LunaFrameInvalidationSet(.input)
         }
         if handleMenuPointer(event) {
+            return LunaFrameInvalidationSet(.input)
+        }
+        if handleFindPanelPointer(event) {
             return LunaFrameInvalidationSet(.input)
         }
         if handleDocumentTabsPointer(event) {
@@ -1316,7 +1351,8 @@ public struct MothApplicationShellScene {
             id: id,
             document: document,
             primaryView: primaryView,
-            secondaryView: secondaryView
+            secondaryView: secondaryView,
+            findPanelState: findPanelState
         )
     }
 
@@ -1326,10 +1362,12 @@ public struct MothApplicationShellScene {
     ) -> MothDocumentSheetID {
         captureActiveDocumentSheet()
         install(document: newDocument)
+        findPanelState = LunaFindPanelState()
         let id = documentSheets.append(
             document: document,
             primaryView: primaryView,
-            secondaryView: secondaryView
+            secondaryView: secondaryView,
+            findPanelState: findPanelState
         )
         documentShellState.tabStrip.activeTabID = lunaTabID(for: id)
         synchronizeDocumentTabState()
@@ -1354,6 +1392,8 @@ public struct MothApplicationShellScene {
         document = sheet.document
         primaryView = sheet.primaryView
         secondaryView = sheet.secondaryView
+        findPanelState = sheet.findPanelState
+        findPanelPointerField = nil
         _ = documentSheets.activate(id)
         documentShellState.tabStrip.activeTabID = lunaTabID(for: id)
         paneViewGeneration &+= 1
@@ -1364,6 +1404,9 @@ public struct MothApplicationShellScene {
         paneInteractionState.cancelDrag()
         currentCursorIntent = .arrow
         synchronizeDocumentTabState()
+        if isFindPanelPresented {
+            refreshFindPanelResults(preservingSelectionNearCaret: true)
+        }
         statusMessage = "Active tab: \(document.snapshot().displayName)"
         return true
     }
@@ -1417,10 +1460,12 @@ public struct MothApplicationShellScene {
                     displayName: "untitled.txt"
                 )
             )
+            findPanelState = LunaFindPanelState()
             let replacementID = documentSheets.append(
                 document: document,
                 primaryView: primaryView,
-                secondaryView: secondaryView
+                secondaryView: secondaryView,
+                findPanelState: findPanelState
             )
             documentShellState.tabStrip.activeTabID = lunaTabID(
                 for: replacementID
@@ -1496,6 +1541,447 @@ public struct MothApplicationShellScene {
         return true
     }
 
+
+    // MARK: - M2.2B2 clipboard and visible Find/Replace
+
+    private func findPanel() -> LunaFindPanel? {
+        guard isFindPanelPresented else { return nil }
+        return LunaFindPanel(
+            id: LunaNodeID(rawValue: "moth.find-panel"),
+            bounds: LunaRectI(
+                x: 0,
+                y: 0,
+                w: framebufferSize.width,
+                h: max(1, framebufferSize.height - 24)
+            ),
+            state: findPanelState,
+            theme: MothApplicationTheme.theme,
+            metrics: LunaFindPanelMetrics(
+                maxPanelWidth: 820,
+                minPanelWidth: 520,
+                bottomMargin: 18,
+                sideMargin: 18,
+                panelPadding: 10,
+                fieldHeight: 28,
+                rowGap: 6,
+                buttonHeight: 24,
+                optionWidth: 72,
+                actionButtonWidth: 84,
+                textScale: 1,
+                titleScale: 1,
+                glyphMetrics: MothUnicodeTextPainter.editorMetrics.glyphMetrics
+            )
+        )
+    }
+
+    func findPanelLayout() -> LunaFindPanelLayout? {
+        findPanel()?.layout()
+    }
+
+    private mutating func handleFindPanelPointer(_ event: LunaPointerEvent) -> Bool {
+        guard let panel = findPanel() else { return false }
+        let layout = panel.layout()
+
+        if let field = findPanelPointerField,
+           event.phase == .moved || event.phase == .up {
+            findPanelState.focusedField = field
+            findPanelState.setCaretInFocusedField(
+                utf8Offset: panel.utf8Offset(in: field, atX: event.location.x),
+                extendingSelection: true
+            )
+            if event.phase == .up { findPanelPointerField = nil }
+            currentCursorIntent = .text
+            return true
+        }
+
+        guard event.phase == .down else {
+            return layout.panelBounds.contains(x: event.location.x, y: event.location.y)
+        }
+
+        if !layout.panelBounds.contains(x: event.location.x, y: event.location.y) {
+            let geometry = MothApplicationFrameGeometry(
+                framebufferSize: framebufferSize
+            )
+            if geometry.documentBarBounds.contains(
+                x: event.location.x,
+                y: event.location.y
+            ) || geometry.sidebarBounds.contains(
+                x: event.location.x,
+                y: event.location.y
+            ) {
+                return false
+            }
+            closeFindPanel()
+            return false
+        }
+
+        if let fieldHit = panel.fieldHit(at: event.location) {
+            findPanelState.focusedField = fieldHit.field
+            findPanelState.setCaretInFocusedField(
+                utf8Offset: fieldHit.utf8Offset,
+                extendingSelection: event.modifiers.shift
+            )
+            findPanelPointerField = fieldHit.field
+            currentCursorIntent = .text
+            return true
+        }
+
+        let hit = panel.hitTest(event.location)
+        switch hit {
+        case panel.caseToggleNodeID:
+            findPanelState.toggleCaseSensitive()
+            refreshFindPanelResults()
+        case panel.wholeWordToggleNodeID:
+            findPanelState.toggleWholeWord()
+            refreshFindPanelResults()
+        case panel.regexToggleNodeID:
+            findPanelState.toggleRegex()
+            refreshFindPanelResults()
+        case panel.previousButtonNodeID:
+            _ = executeCommand(MothCommandID.findPrevious, source: "findPanel")
+        case panel.nextButtonNodeID:
+            _ = executeCommand(MothCommandID.findNext, source: "findPanel")
+        case panel.replaceButtonNodeID:
+            _ = executeCommand(MothCommandID.replaceCurrent, source: "findPanel")
+        case panel.replaceAllButtonNodeID:
+            _ = executeCommand(MothCommandID.replaceAll, source: "findPanel")
+        default:
+            break
+        }
+        currentCursorIntent = .arrow
+        return true
+    }
+
+    private mutating func handleFindPanelKeyboard(_ event: LunaKeyboardEvent) -> Bool {
+        guard isFindPanelPresented else { return false }
+        let provider = MothLunaFindPanelSession(buffer: buffer)
+        let result = findPanelState.handleKeyboardEvent(event, provider: provider)
+        guard result.didConsumeEvent else { return false }
+
+        if result.didDismiss {
+            closeFindPanel()
+            return true
+        }
+        if let action = result.requestedAction {
+            let command = action == .findPrevious
+                ? MothCommandID.findPrevious
+                : MothCommandID.findNext
+            _ = executeCommand(command, source: "findPanel.keyboard")
+        } else {
+            updateFindStatus()
+        }
+        currentCursorIntent = .text
+        return true
+    }
+
+    private mutating func openFindPanel() {
+        if !isFindPanelPresented {
+            findPanelReturnPaneID = paneWorkspace.activePaneID
+        }
+        isFindPanelPresented = true
+        findPanelPointerField = nil
+        menuBarState.close()
+        commandPaletteState = nil
+        findPanelState.focusedField = .query
+
+        if let selection = activeEditorSelectionRange {
+            let selected = buffer.snapshot().text(in: selection)
+            if !selected.contains("\n"), selected.utf8.count <= 512 {
+                findPanelState.queryFieldState.setText(
+                    selected,
+                    selectingAll: true
+                )
+            } else {
+                findPanelState.queryFieldState.selectAll()
+            }
+        } else {
+            findPanelState.queryFieldState.selectAll()
+        }
+        refreshFindPanelResults(preservingSelectionNearCaret: true)
+        currentCursorIntent = .text
+    }
+
+    private mutating func closeFindPanel() {
+        captureActiveDocumentSheet()
+        isFindPanelPresented = false
+        findPanelPointerField = nil
+        currentCursorIntent = .arrow
+        statusMessage = "Find / Replace closed — focus returned to \(findPanelReturnPaneID.rawValue)"
+    }
+
+    private mutating func refreshFindPanelResults(
+        preservingSelectionNearCaret: Bool = false
+    ) {
+        let provider = MothLunaFindPanelSession(buffer: buffer)
+        let location: LunaTextLocation?
+        if preservingSelectionNearCaret {
+            location = currentViewportPresentation().presentation.document.location(
+                forAbsoluteUTF8Offset: activeViewState.caret.rawValue
+            )
+        } else {
+            location = nil
+        }
+        findPanelState.refreshResults(
+            using: provider,
+            preservingSelectionNear: location
+        )
+        updateFindStatus()
+    }
+
+    private mutating func refreshFindPanelAfterDocumentMutation() {
+        guard isFindPanelPresented else { return }
+        refreshFindPanelResults(preservingSelectionNearCaret: true)
+    }
+
+    private mutating func updateFindStatus() {
+        statusMessage = findPanelState.results.statusText
+    }
+
+    private mutating func selectCurrentFindMatchInEditor() -> Bool {
+        guard let match = findPanelState.results.selectedMatch else {
+            updateFindStatus()
+            return false
+        }
+        mutateActiveView { view in
+            view.setSelection(
+                anchor: MothTextOffset(rawValue: match.utf8Offset),
+                focus: MothTextOffset(
+                    rawValue: match.utf8Offset + match.utf8Length
+                )
+            )
+            view.preferredUTF8Column = nil
+        }
+        ensureActiveCaretVisible()
+        updateFindStatus()
+        return true
+    }
+
+    private mutating func navigateFind(previous: Bool) -> Bool {
+        guard findPanelState.results.errorMessage == nil else {
+            updateFindStatus()
+            return false
+        }
+        guard !findPanelState.query.isEmpty else {
+            statusMessage = "Enter text to find"
+            return false
+        }
+        refreshFindPanelResults()
+        guard !findPanelState.results.matches.isEmpty else {
+            updateFindStatus()
+            return false
+        }
+        if previous {
+            findPanelState.selectPrevious()
+        } else {
+            findPanelState.selectNext()
+        }
+        return selectCurrentFindMatchInEditor()
+    }
+
+    private mutating func performFindReplacement(replaceAll: Bool) -> MothHistoryActionResult? {
+        refreshFindPanelResults()
+        guard findPanelState.results.errorMessage == nil,
+              !findPanelState.results.matches.isEmpty
+        else {
+            updateFindStatus()
+            return nil
+        }
+
+        var session = MothFindSession(buffer: buffer)
+        _ = session.update(
+            query: MothLunaFindPanelSession.mothQuery(from: findPanelState.query)
+        )
+        if let selected = findPanelState.results.selectedMatch {
+            session.selectMatch(startingAtUTF8Offset: selected.utf8Offset)
+        }
+
+        let result: MothHistoryActionResult?
+        if paneWorkspace.activePaneID == Self.secondaryPaneID {
+            var others = [primaryView]
+            if replaceAll {
+                result = session.replaceAll(
+                    with: findPanelState.replaceText,
+                    history: document.history,
+                    originView: &secondaryView,
+                    otherViews: &others
+                )
+            } else {
+                result = session.replaceCurrent(
+                    with: findPanelState.replaceText,
+                    history: document.history,
+                    originView: &secondaryView,
+                    otherViews: &others
+                )
+            }
+            primaryView = others[0]
+        } else {
+            var others = [secondaryView]
+            if replaceAll {
+                result = session.replaceAll(
+                    with: findPanelState.replaceText,
+                    history: document.history,
+                    originView: &primaryView,
+                    otherViews: &others
+                )
+            } else {
+                result = session.replaceCurrent(
+                    with: findPanelState.replaceText,
+                    history: document.history,
+                    originView: &primaryView,
+                    otherViews: &others
+                )
+            }
+            secondaryView = others[0]
+        }
+
+        guard let result else { return nil }
+        paneViewGeneration &+= 1
+        refreshFindPanelResults(preservingSelectionNearCaret: true)
+        if !replaceAll { _ = selectCurrentFindMatchInEditor() }
+        return result
+    }
+
+    private var activeEditorSelectionRange: MothTextRange? {
+        guard let selection = activeViewState.selection,
+              !selection.isCollapsed
+        else { return nil }
+        return selection.normalizedRange
+    }
+
+    private var activeEditorSelectedText: String? {
+        guard let range = activeEditorSelectionRange else { return nil }
+        return buffer.snapshot().text(in: range)
+    }
+
+    private func focusedClipboardSelection() -> String? {
+        if isFindPanelPresented {
+            return findPanelState.selectedTextInFocusedField
+        }
+        return activeEditorSelectedText
+    }
+
+    private mutating func copyFocusedSelection() -> Bool {
+        guard let selected = focusedClipboardSelection(), !selected.isEmpty else {
+            statusMessage = "Nothing selected to Copy"
+            return false
+        }
+        do {
+            try clipboardService.writeText(selected)
+            statusMessage = "Copied \(selected.utf8.count) UTF-8 bytes"
+            return true
+        } catch {
+            statusMessage = error.localizedDescription
+            return false
+        }
+    }
+
+    private mutating func cutFocusedSelection() -> Bool {
+        guard let selected = focusedClipboardSelection(), !selected.isEmpty else {
+            statusMessage = "Nothing selected to Cut"
+            return false
+        }
+        do {
+            // Clipboard write must succeed before any destructive mutation.
+            try clipboardService.writeText(selected)
+        } catch {
+            statusMessage = error.localizedDescription
+            return false
+        }
+
+        if isFindPanelPresented {
+            _ = findPanelState.replaceSelectionInFocusedField(with: "")
+            refreshFindPanelResults()
+            statusMessage = "Cut from Find / Replace field"
+            return true
+        }
+
+        document.history.breakCoalescing()
+        guard let result = performActiveInsert("") else {
+            statusMessage = "Cut did not change the document"
+            return false
+        }
+        refreshFindPanelAfterDocumentMutation()
+        ensureActiveCaretVisible()
+        statusMessage = "Cut: \(result.displayName)"
+        return true
+    }
+
+    private mutating func pasteIntoFocusedSurface() -> Bool {
+        let text: String
+        do {
+            guard let clipboardText = try clipboardService.readText(),
+                  !clipboardText.isEmpty
+            else {
+                statusMessage = "Clipboard contains no plain text"
+                return false
+            }
+            text = clipboardText
+        } catch {
+            statusMessage = error.localizedDescription
+            return false
+        }
+
+        if isFindPanelPresented {
+            _ = findPanelState.replaceSelectionInFocusedField(with: text)
+            refreshFindPanelResults()
+            statusMessage = "Pasted into Find / Replace field"
+            return true
+        }
+
+        document.history.breakCoalescing()
+        guard let result = performActiveInsert(text) else {
+            statusMessage = "Paste did not change the document"
+            return false
+        }
+        refreshFindPanelAfterDocumentMutation()
+        ensureActiveCaretVisible()
+        statusMessage = "Paste: \(result.displayName)"
+        return true
+    }
+
+    private mutating func insertCommittedTextIntoEditor(
+        _ text: String
+    ) -> LunaFrameInvalidationSet {
+        if let result = performActiveInsert(text) {
+            statusMessage = result.displayName
+            refreshFindPanelAfterDocumentMutation()
+        }
+        ensureActiveCaretVisible()
+        return LunaFrameInvalidationSet(.textInput)
+    }
+
+    private func findHighlights(
+        for view: MothEditorViewState
+    ) -> [LunaStaticTextHighlight] {
+        guard isFindPanelPresented,
+              findPanelState.results.errorMessage == nil,
+              !findPanelState.results.matches.isEmpty
+        else { return [] }
+
+        // Keep overlay work viewport-bounded even when a query has thousands of
+        // matches in a large document. Navigation first scrolls the selected
+        // match into this bounded window.
+        let lowerLine = max(0, view.viewport.firstVisibleLine - 4)
+        let upperLine = lowerLine + 192
+        let selectedIndex = findPanelState.results.selectedMatchIndex
+        var highlights: [LunaStaticTextHighlight] = []
+        highlights.reserveCapacity(128)
+        for (index, match) in findPanelState.results.matches.enumerated() {
+            let range = match.range.normalized
+            guard range.focus.lineIndex >= lowerLine,
+                  range.anchor.lineIndex <= upperLine
+            else { continue }
+            let color: LunaColor = index == selectedIndex
+                ? .hex("#B8AAFF88")
+                : .hex("#705AFF40")
+            highlights.append(
+                LunaStaticTextHighlight(range: match.range, color: color)
+            )
+            if highlights.count >= 512 { break }
+        }
+        return highlights
+    }
+
     // MARK: - Command surfaces
 
     private func menuBar() -> LunaMenuBar {
@@ -1548,6 +2034,10 @@ public struct MothApplicationShellScene {
                 items: [
                     menuItem(for: MothCommandID.undo),
                     menuItem(for: MothCommandID.redo),
+                    .separator(id: "edit.separator.clipboard"),
+                    menuItem(for: MothCommandID.cut),
+                    menuItem(for: MothCommandID.copy),
+                    menuItem(for: MothCommandID.paste),
                 ]
             ),
             LunaMenuDefinition(
@@ -1558,7 +2048,14 @@ public struct MothApplicationShellScene {
             LunaMenuDefinition(
                 id: "find",
                 title: "Find",
-                items: [menuItem(for: MothCommandID.showFind)]
+                items: [
+                    menuItem(for: MothCommandID.showFind),
+                    menuItem(for: MothCommandID.findNext),
+                    menuItem(for: MothCommandID.findPrevious),
+                    .separator(id: "find.separator.replace"),
+                    menuItem(for: MothCommandID.replaceCurrent),
+                    menuItem(for: MothCommandID.replaceAll),
+                ]
             ),
             LunaMenuDefinition(
                 id: "view",
@@ -1640,6 +2137,9 @@ public struct MothApplicationShellScene {
 
     private mutating func openCommandPalette() {
         menuBarState.close()
+        captureActiveDocumentSheet()
+        isFindPanelPresented = false
+        findPanelPointerField = nil
         commandPaletteState = LunaQuickPanelState(items: commandPaletteItems())
         currentCursorIntent = .arrow
     }
@@ -1804,6 +2304,10 @@ public struct MothApplicationShellScene {
     private mutating func handleKeyboard(_ event: LunaKeyboardEvent) {
         if handleCommandPaletteKeyboard(event) { return }
         if handleMenuKeyboard(event) { return }
+        if isFindPanelPresented {
+            if handleCommandShortcut(event) { return }
+            if handleFindPanelKeyboard(event) { return }
+        }
         if handleCommandShortcut(event) { return }
         let snapshot = buffer.snapshot()
 
@@ -1811,18 +2315,21 @@ public struct MothApplicationShellScene {
         case .backspace:
             if let result = performActiveDeleteBackward() {
                 statusMessage = result.displayName
+                refreshFindPanelAfterDocumentMutation()
             }
             ensureActiveCaretVisible()
 
         case .delete:
             if let result = performActiveDeleteForward() {
                 statusMessage = result.displayName
+                refreshFindPanelAfterDocumentMutation()
             }
             ensureActiveCaretVisible()
 
         case .enter:
             if let result = performActiveInsert("\n") {
                 statusMessage = result.displayName
+                refreshFindPanelAfterDocumentMutation()
             }
             ensureActiveCaretVisible()
 
@@ -1913,11 +2420,17 @@ public struct MothApplicationShellScene {
                 : .disabled("Tab \(index + 1) is not open")
         }
 
+        if commandPaletteState != nil,
+           [MothCommandID.cut, MothCommandID.copy, MothCommandID.paste]
+            .contains(command) {
+            return .disabled("Close the Command Palette before using the clipboard")
+        }
+
         switch command {
         case MothCommandID.newFile, MothCommandID.openFile,
              MothCommandID.saveAs, MothCommandID.closeTab,
              MothCommandID.nextPane, MothCommandID.previousPane,
-             MothCommandID.showCommandPalette:
+             MothCommandID.showCommandPalette, MothCommandID.showFind:
             return .enabled
         case MothCommandID.nextTab, MothCommandID.previousTab:
             return documentSheetCount > 1
@@ -1931,12 +2444,44 @@ public struct MothApplicationShellScene {
             return history.canUndo ? .enabled : .disabled("Nothing to Undo")
         case MothCommandID.redo:
             return history.canRedo ? .enabled : .disabled("Nothing to Redo")
+        case MothCommandID.copy, MothCommandID.cut:
+            return focusedClipboardSelection()?.isEmpty == false
+                ? .enabled
+                : .disabled("Nothing is selected")
+        case MothCommandID.paste:
+            return clipboardService.isAvailable
+                ? .enabled
+                : .disabled("The system clipboard is unavailable")
         case MothCommandID.selectAll:
+            if isFindPanelPresented {
+                return findPanelState.focusedFieldIsEmpty
+                    ? .disabled("The focused Find / Replace field is empty")
+                    : .enabled
+            }
             return snapshot.buffer.utf8Count > 0
                 ? .enabled
                 : .disabled("Document is empty")
-        case MothCommandID.showFind:
-            return .disabled("Visible Find/Replace is planned for M2.2B2")
+        case MothCommandID.findNext, MothCommandID.findPrevious:
+            if findPanelState.results.errorMessage != nil {
+                return .disabled(findPanelState.results.statusText)
+            }
+            return findPanelState.query.isEmpty
+                ? .disabled("Enter text to find")
+                : .enabled
+        case MothCommandID.replaceCurrent:
+            guard isFindPanelPresented else {
+                return .disabled("Open Find / Replace first")
+            }
+            return findPanelState.results.selectedMatch == nil
+                ? .disabled(findPanelState.results.statusText)
+                : .enabled
+        case MothCommandID.replaceAll:
+            guard isFindPanelPresented else {
+                return .disabled("Open Find / Replace first")
+            }
+            return findPanelState.results.matches.isEmpty
+                ? .disabled(findPanelState.results.statusText)
+                : .enabled
         default:
             return .disabled("Unknown Moth command")
         }
@@ -1946,7 +2491,13 @@ public struct MothApplicationShellScene {
         _ command: LunaCommandID,
         context: LunaCommandContext
     ) -> LunaCommandExecutionResult {
-        document.history.breakCoalescing()
+        if ![
+            MothCommandID.copy,
+            MothCommandID.cut,
+            MothCommandID.paste,
+        ].contains(command) {
+            document.history.breakCoalescing()
+        }
         textSelectionInteractionState.cancel()
         paneInteractionState.cancelDrag()
 
@@ -1994,9 +2545,46 @@ public struct MothApplicationShellScene {
                 return .unhandled(statusMessage)
             }
             return .handled("Redo: \(result.displayName)")
+        case MothCommandID.copy:
+            return copyFocusedSelection()
+                ? .handled(statusMessage)
+                : .unhandled(statusMessage)
+        case MothCommandID.cut:
+            return cutFocusedSelection()
+                ? .handled(statusMessage)
+                : .unhandled(statusMessage)
+        case MothCommandID.paste:
+            return pasteIntoFocusedSurface()
+                ? .handled(statusMessage)
+                : .unhandled(statusMessage)
         case MothCommandID.selectAll:
+            if isFindPanelPresented {
+                findPanelState.selectAllInFocusedField()
+                return .handled("Selected Find / Replace field")
+            }
             selectAllInActiveView()
             return .handled("Selected entire document")
+        case MothCommandID.showFind:
+            openFindPanel()
+            return .handled("Find / Replace")
+        case MothCommandID.findNext:
+            return navigateFind(previous: false)
+                ? .handled(statusMessage)
+                : .unhandled(statusMessage)
+        case MothCommandID.findPrevious:
+            return navigateFind(previous: true)
+                ? .handled(statusMessage)
+                : .unhandled(statusMessage)
+        case MothCommandID.replaceCurrent:
+            guard let result = performFindReplacement(replaceAll: false) else {
+                return .unhandled(statusMessage)
+            }
+            return .handled("Replace: \(result.displayName)")
+        case MothCommandID.replaceAll:
+            guard let result = performFindReplacement(replaceAll: true) else {
+                return .unhandled(statusMessage)
+            }
+            return .handled("Replace All: \(result.displayName)")
         case MothCommandID.nextTab:
             return selectAdjacentDocumentSheet(delta: 1)
                 ? .handled(statusMessage)
@@ -2014,16 +2602,24 @@ public struct MothApplicationShellScene {
         case MothCommandID.showCommandPalette:
             openCommandPalette()
             return .handled("Command Palette")
-        case MothCommandID.showFind:
-            return .unhandled("Visible Find/Replace is planned for M2.2B2")
         default:
             return .unhandled("Unknown Moth command: \(command.rawValue)")
         }
     }
 
     private func commandContext(source: String) -> LunaCommandContext {
-        LunaCommandContext(
-            focusedSurface: commandPaletteState == nil ? "editor" : "commandPalette",
+        let focusedSurface: String
+        if commandPaletteState != nil {
+            focusedSurface = "commandPalette"
+        } else if isFindPanelPresented {
+            focusedSurface = findPanelState.focusedField == .query
+                ? "find.query"
+                : "find.replace"
+        } else {
+            focusedSurface = "editor"
+        }
+        return LunaCommandContext(
+            focusedSurface: focusedSurface,
             activeDocumentID: document.snapshot().id.description,
             source: source,
             attributes: [
@@ -2672,6 +3268,101 @@ public struct MothApplicationShellScene {
                 y: empty.bounds.y + 5,
                 color: theme.ui.panel.mutedForeground.asRenderColor,
                 maximumWidth: empty.bounds.w,
+                into: &framebuffer
+            )
+        }
+    }
+
+
+    private func drawFindPanel(into framebuffer: inout LunaFramebuffer) {
+        guard let panel = findPanel() else { return }
+        var displayList = LunaDisplayList()
+        panel.buildDisplayList(into: &displayList)
+        LunaCPURenderer().render(displayList: displayList, into: &framebuffer)
+
+        let theme = MothApplicationTheme.theme
+        let text = panel.textLayout()
+        MothUnicodeTextPainter.draw(
+            text.title.text,
+            atX: text.title.bounds.x,
+            y: text.title.bounds.y + 3,
+            color: theme.ui.panel.titleForeground.asRenderColor,
+            maximumWidth: text.title.bounds.w,
+            into: &framebuffer
+        )
+        let queryColor = panel.state.queryText.isEmpty
+            ? theme.ui.textField.placeholderForeground.asRenderColor
+            : theme.ui.textField.foreground.asRenderColor
+        MothUnicodeTextPainter.draw(
+            text.query.text,
+            atX: text.query.bounds.x,
+            y: text.query.bounds.y + 4,
+            color: queryColor,
+            maximumWidth: text.query.bounds.w,
+            into: &framebuffer
+        )
+        if panel.state.isReplaceVisible {
+            let replaceColor = panel.state.replaceText.isEmpty
+                ? theme.ui.textField.placeholderForeground.asRenderColor
+                : theme.ui.textField.foreground.asRenderColor
+            MothUnicodeTextPainter.draw(
+                text.replace.text,
+                atX: text.replace.bounds.x,
+                y: text.replace.bounds.y + 4,
+                color: replaceColor,
+                maximumWidth: text.replace.bounds.w,
+                into: &framebuffer
+            )
+        }
+
+        // Luna paints selection behind field text. Repaint the focused caret
+        // after Moth's Unicode glyph pass so the insertion point cannot be
+        // obscured by a glyph edge.
+        let focusedField = panel.state.focusedField
+        let focusedState = panel.state.fieldState(for: focusedField)
+        let fieldBounds = focusedField == .query
+            ? panel.layout().queryFieldBounds
+            : panel.layout().replaceFieldBounds
+        if !fieldBounds.isEmpty {
+            let textBounds = LunaRectI(
+                x: fieldBounds.x + 8,
+                y: fieldBounds.y + 4,
+                w: max(1, fieldBounds.w - 16),
+                h: max(1, fieldBounds.h - 8)
+            )
+            let index = focusedState.characterIndex(
+                forUTF8Offset: focusedState.caretUTF8Offset
+            )
+            let x = min(
+                textBounds.x + max(0, textBounds.w - 1),
+                textBounds.x + index * max(1, panel.metrics.glyphMetrics.advance)
+            )
+            framebuffer.fillRect(
+                LunaRectI(x: x, y: textBounds.y, w: 1, h: textBounds.h),
+                color: theme.ui.editor.caret.asRenderColor
+            )
+        }
+
+        let statusColor = panel.state.results.errorMessage == nil
+            ? theme.ui.panel.mutedForeground.asRenderColor
+            : theme.ui.controlColors.accentStrong.asRenderColor
+        MothUnicodeTextPainter.draw(
+            text.status.text,
+            atX: text.status.bounds.x,
+            y: text.status.bounds.y + 2,
+            color: statusColor,
+            maximumWidth: text.status.bounds.w,
+            into: &framebuffer
+        )
+        for button in text.buttons {
+            MothUnicodeTextPainter.draw(
+                button.label,
+                atX: button.bounds.x + 8,
+                y: button.bounds.y + 5,
+                color: button.isSelected
+                    ? theme.ui.menu.rowHoveredForeground.asRenderColor
+                    : theme.ui.menu.rowForeground.asRenderColor,
+                maximumWidth: max(0, button.bounds.w - 16),
                 into: &framebuffer
             )
         }

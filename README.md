@@ -416,3 +416,19 @@ close policy targets only the selected sheet.
 
 Visible Find/Replace remains M2.2B2 and follows M3A so commands and panel state can
 target a stable active document sheet.
+
+## M2.2B2 — Clipboard and Visible Find/Replace {#M22B2_CURRENT_PHASE}
+
+**Current product phase after accepted M3A.** Moth now exposes native system
+Copy, Cut, and Paste through a Luna host clipboard boundary and integrates the
+existing Moth-owned, history-aware find engine with Luna's visible Find/Replace
+panel. Clipboard and search commands target the focused Find field or the active
+pane of the active document sheet; inactive tabs cannot be mutated.
+
+Replace All is one atomic Moth history group, invalid regular expressions remain
+visible and non-destructive, search highlights stay viewport-bounded, and each
+M3A sheet retains independent query/replacement/options/result state. The Linux
+SDL host also receives explicit application identity so normal, 5K, and 50K
+launches match the installed Moth desktop icon.
+
+See [`docs/M2.2B2_CLIPBOARD_AND_FIND_REPLACE.md`](docs/M2.2B2_CLIPBOARD_AND_FIND_REPLACE.md).

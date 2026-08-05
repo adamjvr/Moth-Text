@@ -251,7 +251,7 @@ force quit and operation counts that remain viewport bounded.
 
 ### M3A — Document sheets and real tabs
 
-**Current product phase — unblocked by accepted C2.5J.**
+**Status: complete and accepted.**
 
 - Moth-owned `MothDocumentSheetID` and document-sheet collection;
 - one active sheet projected to the existing editor panes;
@@ -267,9 +267,15 @@ M3A exit condition:
 > targets one stable Moth sheet, and New File never discards or replaces another
 > document. Closing a dirty tab affects only its targeted sheet.
 
-### M2.2B2 — Visible Find/Replace convergence
+### M2.2B2 — Clipboard and Visible Find/Replace convergence
 
-**Immediately after M3A.**
+**Current product phase.**
+
+- platform-neutral Luna clipboard service plus SDL Linux implementation;
+- focus-aware Moth Copy, Cut, Paste, and Select All commands;
+- grapheme-safe editable query and replacement fields with caret/selection;
+- system clipboard interoperability for editor and Find/Replace fields;
+- visible Luna find/replace panel backed by history-aware Moth mutation;
 
 - visible Luna find/replace panel backed by history-aware Moth mutation;
 - Find Next and Find Previous command routing;
@@ -330,8 +336,8 @@ now a regression gate rather than the purpose of every iteration.
 
 The execution order remains:
 
-1. **M3A — Document sheets and real tabs** (current);
-2. **M2.2B2 — Visible Find/Replace**;
+1. **M3A — Document sheets and real tabs** (complete);
+2. **M2.2B2 — Clipboard and Visible Find/Replace** (current);
 3. **M2.2B3 — External-change and session groundwork**;
 4. remaining M3 workspace/editor-group/session phases;
 5. M4 interaction core;

@@ -7,9 +7,6 @@ import MothEditor
 import MothTextCore
 
 /// Read-only Luna adapter over an authoritative Moth source buffer.
-///
-/// The buffer remains owned and mutated by Moth. Luna receives immutable value
-/// snapshots and never becomes the source of truth.
 public struct MothLunaTextStorageAdapter: LunaTextStorageAdapter, Sendable {
     public let buffer: any MothSourceBuffer
 
@@ -74,6 +71,9 @@ public enum MothLunaViewProjection {
 }
 
 /// Bridges Luna's reusable find panel to Moth's product-owned session policy.
+/// Production replacement commands are routed through Moth document history by
+/// MothApplicationShellScene; this adapter remains the read/search projection and
+/// low-level compatibility boundary.
 public struct MothLunaFindPanelSession: LunaFindPanelSession, Sendable {
     public var mothSession: MothFindSession
 
@@ -125,7 +125,7 @@ public struct MothLunaFindPanelSession: LunaFindPanelSession, Sendable {
         )
     }
 
-    private static func mothQuery(from query: LunaFindQuery) -> MothFindQuery {
+    public static func mothQuery(from query: LunaFindQuery) -> MothFindQuery {
         MothFindQuery(
             text: query.text,
             options: MothFindOptions(
@@ -136,7 +136,7 @@ public struct MothLunaFindPanelSession: LunaFindPanelSession, Sendable {
         )
     }
 
-    private static func lunaResults(
+    public static func lunaResults(
         from results: MothFindResultSet,
         buffer: any MothSourceBuffer
     ) -> LunaFindResultSet {
@@ -166,7 +166,8 @@ public struct MothLunaFindPanelSession: LunaFindPanelSession, Sendable {
         return LunaFindResultSet(
             query: query,
             matches: matches,
-            selectedMatchIndex: results.selectedMatchIndex
+            selectedMatchIndex: results.selectedMatchIndex,
+            errorMessage: results.errorMessage
         )
     }
 }

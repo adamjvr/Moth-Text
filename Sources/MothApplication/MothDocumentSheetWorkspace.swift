@@ -7,6 +7,7 @@
 // views, file policy, activation, closing, and session-facing ordering.
 
 import Foundation
+import LunaUI
 import MothEditor
 import MothWorkspace
 
@@ -35,17 +36,20 @@ public struct MothDocumentSheet: Sendable {
     public var document: MothFileDocument
     public var primaryView: MothEditorViewState
     public var secondaryView: MothEditorViewState
+    public var findPanelState: LunaFindPanelState
 
     public init(
         id: MothDocumentSheetID = .make(),
         document: MothFileDocument,
         primaryView: MothEditorViewState,
-        secondaryView: MothEditorViewState
+        secondaryView: MothEditorViewState,
+        findPanelState: LunaFindPanelState = LunaFindPanelState()
     ) {
         self.id = id
         self.document = document
         self.primaryView = primaryView
         self.secondaryView = secondaryView
+        self.findPanelState = findPanelState
     }
 }
 
@@ -83,13 +87,15 @@ public struct MothDocumentSheetCollection: Sendable {
     public mutating func installInitial(
         document: MothFileDocument,
         primaryView: MothEditorViewState,
-        secondaryView: MothEditorViewState
+        secondaryView: MothEditorViewState,
+        findPanelState: LunaFindPanelState = LunaFindPanelState()
     ) -> MothDocumentSheetID {
         precondition(sheets.isEmpty, "Initial sheet may only be installed once")
         let sheet = MothDocumentSheet(
             document: document,
             primaryView: primaryView,
-            secondaryView: secondaryView
+            secondaryView: secondaryView,
+            findPanelState: findPanelState
         )
         sheets = [sheet]
         activeSheetID = sheet.id
@@ -100,12 +106,14 @@ public struct MothDocumentSheetCollection: Sendable {
     public mutating func append(
         document: MothFileDocument,
         primaryView: MothEditorViewState,
-        secondaryView: MothEditorViewState
+        secondaryView: MothEditorViewState,
+        findPanelState: LunaFindPanelState = LunaFindPanelState()
     ) -> MothDocumentSheetID {
         let sheet = MothDocumentSheet(
             document: document,
             primaryView: primaryView,
-            secondaryView: secondaryView
+            secondaryView: secondaryView,
+            findPanelState: findPanelState
         )
         sheets.append(sheet)
         activeSheetID = sheet.id
@@ -125,7 +133,8 @@ public struct MothDocumentSheetCollection: Sendable {
         id: MothDocumentSheetID,
         document: MothFileDocument,
         primaryView: MothEditorViewState,
-        secondaryView: MothEditorViewState
+        secondaryView: MothEditorViewState,
+        findPanelState: LunaFindPanelState? = nil
     ) -> Bool {
         guard let index = sheets.firstIndex(where: { $0.id == id }) else {
             return false
@@ -133,6 +142,9 @@ public struct MothDocumentSheetCollection: Sendable {
         sheets[index].document = document
         sheets[index].primaryView = primaryView
         sheets[index].secondaryView = secondaryView
+        if let findPanelState {
+            sheets[index].findPanelState = findPanelState
+        }
         return true
     }
 

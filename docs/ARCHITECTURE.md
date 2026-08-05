@@ -430,3 +430,20 @@ collection.
 Luna receives `LunaShellTab` projections only. Luna never owns Moth documents,
 canonical-file matching, history, dirty prompts, activation policy, close policy,
 or session identity.
+
+## M2.2B2 focus, clipboard, and search ownership
+
+Moth retains command and mutation policy while consuming Luna's reusable native
+clipboard boundary and editable field state. The application resolves one focused
+surface—command palette, Find query, Find replacement, or editor pane—before
+checking command availability or performing Copy, Cut, Paste, and Select All.
+
+Every document sheet stores its own Find/Replace state beside its document and two
+editor views. The visible panel is window-level presentation projected from the
+active sheet. Search scans and replacements always target the active sheet's
+Moth-owned buffer and history; Luna never owns the product document.
+
+Cut is transactional across the platform boundary: the clipboard write completes
+before Moth requests the history-aware deletion. Replace All remains one atomic
+Moth history group. Find highlights use Luna's generic range-overlay geometry but
+Moth bounds the projected match set to the visible viewport.

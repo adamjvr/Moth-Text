@@ -5,7 +5,7 @@
 // Moth-owned projection of one editor view into Luna's reusable pane-bound,
 // soft-wrapped text surface. Luna owns geometry, clipping, wrapping, hit testing,
 // shaping, glyph rasterization, and accessibility coordinates. Moth owns the
-// document and per-view state.
+// document, per-view state, and product search-result projection.
 
 import LunaCore
 import LunaRender
@@ -25,7 +25,8 @@ struct MothPaneEditorSurface {
         snapshot: LunaTextStorageSnapshot,
         presentation: LunaStaticTextPresentationSnapshot,
         virtualizationContext: LunaStaticTextVirtualizationContext,
-        isActive: Bool
+        isActive: Bool,
+        highlights: [LunaStaticTextHighlight] = []
     ) {
         let viewPresentation = MothLunaViewProjection.presentation(
             for: viewState,
@@ -49,6 +50,7 @@ struct MothPaneEditorSurface {
             isEditable: true,
             caret: isActive ? viewPresentation.caret : nil,
             selection: viewPresentation.selection,
+            highlights: highlights,
             virtualizationContext: virtualizationContext
         )
     }
